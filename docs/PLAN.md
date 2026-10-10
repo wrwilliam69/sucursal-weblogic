@@ -8,6 +8,8 @@
 - [x] Escenarios: pool corto, fuga, BD lenta, MDB detenido, tablespace lleno, archivelogs llenos.
 - [x] Placas H1/M1, letreros con conteo en vivo y leyenda.
 - [x] Mandy (gerente) y el ingeniero de mantenimiento.
+- [x] Bóveda que se llena: tablespace lleno (ORA-01653) y archivelogs llenos (ORA-00257).
+- [x] Fallas graves con alarma: BD caída, JMS Server caído y pool insuficiente con recomendación de Maximum Capacity.
 
 ## Fase 1 · Conceptos según la documentación
 

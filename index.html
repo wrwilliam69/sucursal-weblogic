@@ -101,6 +101,17 @@ input[type=range]{flex:1;min-width:0;accent-color:var(--brass)}
 .sw.p{width:10px;height:12px;border-top:4px solid #2b1d14}
 .sw.doc{width:10px;height:8px}
 .stage.nolabels .lbl{display:none}
+.alertbox{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;background:#2a0f14;border:3px solid var(--bad);border-top:0;padding:10px 14px;color:var(--fg)}
+.alertbox.warn{background:#2c1d0c;border-color:var(--warn)}
+.alertbox .at{font-family:var(--f-display);font-size:14px;letter-spacing:.06em;color:var(--bad);animation:blink 1s steps(2) infinite;width:100%}
+.alertbox.warn .at{color:var(--warn)}
+.alertbox p{margin:0;font-size:14px;line-height:1.4;flex:1 1 300px;min-width:0}
+.alertbox .am{font-family:var(--f-num);font-size:16px;color:var(--muted);flex-basis:100%}
+.stage.alarm{box-shadow:0 0 0 3px var(--bad);animation:alarm 1s steps(2) infinite}
+.stage.alarm.warn{box-shadow:0 0 0 3px var(--warn)}
+@keyframes blink{50%{opacity:.35}}
+@keyframes alarm{50%{box-shadow:0 0 0 3px #0c0810}}
+@media (prefers-reduced-motion:reduce){.alertbox .at,.stage.alarm{animation:none}}
 .log .bad{border-color:var(--bad)}.log .warn{border-color:var(--warn)}.log .good{border-color:var(--good)}.log .info{border-color:var(--teal)}
 footer{color:var(--muted);font-size:13px;max-width:84ch}
 .tabs{display:flex;flex-wrap:wrap;gap:8px;border-bottom:2px solid var(--line);padding-bottom:10px}
@@ -207,6 +218,7 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
     <span><i class="sw" style="background:#2c3240"></i>no existe: por encima de Maximum Capacity</span>
     <span><i class="sw" style="background:#e6b04a;height:10px"></i>Fila del directorio encendida = alguien consultó JNDI</span>
     <span><i class="sw doc" style="background:#efe6d8"></i>Carta = una tarea pendiente para el back office</span>
+    <span><i class="sw" style="background:#e8605a;width:14px;height:6px"></i>Empleado acostado con estrellas = fuera de combate por una falla grave</span>
     <span><i class="sw" style="background:#5d6b8a;width:14px"></i>Bóveda de enfrente = la BD, fuera del servidor</span>
   </div>
   <div class="grid">
@@ -237,6 +249,14 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
             <button class="tg danger" id="bFill" aria-pressed="false">Bóveda creciendo rápido</button>
             <button class="tg danger" id="bArch" aria-pressed="false">Archivelogs llenos</button>
             <button class="tg" id="bDba">Llamar al DBA</button>
+          </div>
+        </div>
+        <div class="ctl" style="grid-column:1/-1">
+          <span class="k">Fallas graves</span>
+          <div class="toggles">
+            <button class="tg danger" id="bCdb" aria-pressed="false">Se cae la BD</button>
+            <button class="tg danger" id="bCjms" aria-pressed="false">Se cae el JMS Server</button>
+            <button class="tg danger" id="bCpool" aria-pressed="false">Pool insuficiente</button>
             <button class="tg" id="bPause" aria-pressed="false">Pausa</button>
             <button class="tg" id="bLbl" aria-pressed="true">Nombres</button>
           </div>
@@ -858,6 +878,9 @@ const bot={x:192,y:Y_LOBBY,home:{x:192,y:Y_LOBBY},state:'idle',t:0,walk:0,path:[
 function liftPath(from,to){return floorOf(from.y)===floorOf(to.y)?[{x:to.x,y:to.y}]:[{x:EX,y:from.y},{x:EX,y:to.y},{x:to.x,y:to.y}]}
 function botGo(x,y,msg){if(bot.state!=='idle')return;bot.state='going';bot.msg=msg;bot.path=liftPath(bot,{x,y})}
 function botTrigger(key){
+  if(key==='crash-db')return botGo(244,Y_P1,'BD caída. Runbook: confirmar con el DBA, revisar el listener y, cuando vuelva, verificar que el Data Source se recupere solo (Test Connections On Reserve).');
+  if(key==='crash-jms')return botGo(150,Y_SOT,'File Store sin espacio. Runbook: liberar disco o mover el store a otro volumen, y reiniciar el JMS Server.');
+  if(key==='crash-pool')return botGo(180,Y_P1,'Pool insuficiente. Runbook: medir la demanda pico, descartar consultas lentas y subir Maximum Capacity.');
   if(key==='ds')return botGo(180,Y_P1,'Conmutador sin líneas libres. Runbook: revisar consultas lentas o subir Maximum Capacity del Data Source.');
   if(key==='leak')return botGo(100,Y_P1,'Líneas abandonadas. Activo Inactive Connection Timeout y busco el getConnection() sin close().');
   if(key.startsWith('stuck'))return botGo(130,Y_LOBBY,'Empleado atascado. Tomo un thread dump para ver dónde está bloqueado.');
@@ -901,11 +924,93 @@ function release(a){
   } else {c.state='free';c.owner=null}
 }
 
+/* ---------- fallas graves: BD caída, JMS caído, pool insuficiente ---------- */
+S.crash=null;
+let parts=[],shakeT=0,peak=0,alertKind=null,recN=0,calmT=0,failRec=0,frT=0;
+const al=document.createElement('div');al.className='alertbox';al.hidden=true;al.setAttribute('role','alert');
+al.innerHTML='<b class="at"></b><p class="ab"></p><button class="tg" type="button"></button><p class="am"></p>';
+$('stageB').after(al);
+const alT=al.querySelector('.at'),alB=al.querySelector('.ab'),alM=al.querySelector('.am'),alBtn=al.querySelector('button');
+alBtn.onclick=()=>endCrash(false);
+function burst(x,y,n,cols,sp,g){for(let k=0;k<n;k++){const an=Math.random()*6.283,v=sp*(.3+Math.random());parts.push({x,y,vx:Math.cos(an)*v,vy:Math.sin(an)*v-sp*.4,life:.6+Math.random()*.8,c:cols[k%cols.length],g:g===undefined?120:g,s:Math.random()<.3?2:1})}}
+function smoke(x,y){parts.push({x:x+Math.random()*6-3,y,vx:Math.random()*6-3,vy:-10-Math.random()*8,life:1.4,c:'smoke',g:0,s:2})}
+function ko(a){
+  if(a.state==='ko')return;
+  if(a.conn){const c=a.conn;a.conn=null;c.state='free';c.owner=null}
+  const w=waiters.indexOf(a);if(w>=0)waiters.splice(w,1);
+  if(a.kind==='m'&&a.msg){queue.unshift(a.msg);a.msg=null}
+  a.state='ko';a.path=[];a.carry=false;a.stuck=false;
+  burst(a.x,a.y-6,10,['#ffe08a','#f0a63a','#efe6d8'],40);
+}
+const CR={
+  db:{t:'ALERTA CRÍTICA · BD CAÍDA',b:'La bóveda no responde. Cada línea del conmutador falla al probarse y los empleados que la usaban quedaron fuera de combate. Toda petición nueva termina en error, aunque WebLogic esté sano.',m:'FailuresToReconnectCount sube · ActiveConnectionsCurrentCount cae a 0 · el Data Source deja de estar en Running',btn:'Llamar al DBA: levantar la BD'},
+  jms:{t:'ALERTA · JMS SERVER CAÍDO',b:'El archivo en disco (File Store) se quedó sin espacio y el JMS Server dejó de aceptar cartas. Los empleados no pueden dejar sus tareas y el back office se detuvo. Las cartas que ya estaban guardadas no se pierden.',m:'HealthState del JMS Server en estado crítico · el envío del mensaje lanza JMSException',btn:'Liberar disco y reiniciar el JMS Server'},
+  pool:{t:'ALERTA · HAY QUE AUMENTAR EL POOL',b:'',m:'WaitingForConnectionCurrentCount alto por varios segundos · WaitingForConnectionFailureTotal sube',btn:''}
+};
+function poolText(){recN=Math.min(12,Math.max(S.N+1,Math.ceil(peak*1.25)));
+  alB.textContent='Hay '+waiters.length+' en fila esperando una línea'+(S.crash==='pool'?' y varios empleados ya colapsaron':'')+'. La demanda pico fue de '+peak+' conexiones y el pool solo tiene '+S.N+'. Recomendación: subir Maximum Capacity a '+recN+', después de descartar consultas lentas y confirmar que la BD aguanta esas sesiones.';
+  alBtn.textContent='Aplicar: Maximum Capacity = '+recN}
+function showAlert(kind){
+  if(alertKind===kind)return;alertKind=kind;const c=CR[kind];
+  al.className='alertbox'+(kind==='pool'?' warn':'');alT.textContent=c.t;alM.textContent=c.m;
+  if(kind==='pool')poolText();else{alB.textContent=c.b;alBtn.textContent=c.btn}
+  al.hidden=false;const st=$('stageB');st.classList.add('alarm');st.classList.toggle('warn',kind==='pool');
+}
+function startCrash(kind){
+  if(S.crash||alertKind)endCrash(true);
+  S.crash=kind;shakeT=.5;
+  if(kind==='db'){burst(287,40,50,['#e8605a','#f0a63a','#ffe08a','#5d6b8a'],70);say('crash-db',0,287,40,'Bóveda Oracle','¡Me caí! No respondo a ninguna conexión.','bad','La BD está caída: el pool no puede abrir ni probar conexiones.')}
+  if(kind==='jms'){burst(150,146,40,['#efe6d8','#d8ccb8','#e8605a'],60);say('crash-jms',0,150,140,'JMS Server','¡Se llenó el disco del File Store! No puedo recibir más cartas.','bad','El JMS Server dejó de aceptar mensajes.')}
+  if(kind==='pool'){Object.assign(S,{N:2,T:10,rate:1.6});peak=0;burst(96,20,24,['#ffe08a','#f0a63a'],50);say('crash-pool',0,96,16,'Conmutador jdbc/PagosDS','¡Solo tengo 2 líneas para 10 empleados! No doy abasto.','bad')}
+  sync();showAlert(kind);
+}
+function endCrash(quiet){
+  const kind=alertKind||S.crash;
+  if(!quiet&&kind==='pool'){S.N=recN;say('fix-pool',0,96,16,'Conmutador jdbc/PagosDS','Ahora tengo '+recN+' líneas. La fila se deshace.','good','Maximum Capacity subió a '+recN+'.')}
+  if(!quiet&&kind==='db')say('fix-db',0,287,40,'DBA','Levanté la base de datos. El pool vuelve a probar y abrir conexiones.','good');
+  if(!quiet&&kind==='jms')say('fix-jms',0,150,140,'Claude · mantenimiento','Liberé espacio y reinicié el JMS Server. Las cartas guardadas siguen ahí.','good');
+  S.crash=null;alertKind=null;al.hidden=true;peak=0;calmT=0;
+  const st=$('stageB');st.classList.remove('alarm','warn');
+  [...threads,...mdbs].forEach(a=>{if(a.state==='ko'){a.reqT=0;goHome(a)}});
+  sync();
+}
+function personKO(a){
+  const x=Math.round(a.x),y=Math.round(a.y),sh=a.kind==='t'?'#3f9e95':'#e6b04a',hair=a.kind==='t'?'#2b1d14':'#151515';
+  R(x-9,y-3,4,2,'#2c2436');R(x-5,y-4,6,4,sh);R(x+1,y-5,5,4,'#d9a273');R(x+5,y-5,1,4,hair);
+  R(x+2,y-5,1,1,'#1a1220');R(x+4,y-5,1,1,'#1a1220');R(x+3,y-4,1,1,'#1a1220');R(x+2,y-3,1,1,'#1a1220');R(x+4,y-3,1,1,'#1a1220');
+  for(let k=0;k<3;k++){const an=t*4+k*2.09;R(x+3+Math.cos(an)*5,y-9+Math.sin(an)*2,1,1,'#ffe08a')}
+  const tag=(a.kind==='t'?'H':'M')+(a.i+1),w=tag.length*4-1;R(x-Math.ceil(w/2)-1,y-17,w+2,7,'#1d1424');ptext(tag,x-Math.ceil(w/2),y-16,'#e8605a');
+}
+function drawCrash(){
+  if(S.crash==='db'){
+    const f=Math.floor(t*4)%2;
+    R(274,15,30,4,f?'#e8605a':'#8c2f2b');
+    [[278,20],[279,22],[280,24],[281,27],[280,30],[282,33],[296,22],[297,25],[295,28],[298,31],[297,35],[299,38]].forEach(([x,y])=>R(x,y,1,2,'#1d1424'));
+    R(286,34,6,6,'#1d1424');
+    R(190,25,22,4,'#161120');R(188,26,2,2,'#e8605a');R(212,26,2,2,'#e8605a');
+    for(let i=0;i<S.N;i++)R(plugX(i),19,2,22,'#8c2f2b');
+  }
+  if(S.crash==='jms'){
+    R(88,140,126,16,'#3a1a1f');R(88,158,126,6,Math.floor(t*4)%2?'#e8605a':'#8c2f2b');
+    for(let k=0;k<10;k++)R(92+k*12+(k%3)*2,166-(k%2)*3,4,2,'#8a8090');
+  }
+  if(alertKind){const on=Math.floor(t*6)%2,c=alertKind==='pool'?'#f0a63a':'#e8605a';R(137,0,10,4,on?c:'#3b2c44');if(on){R(128,1,7,1,c);R(149,1,7,1,c)}}
+  parts.forEach(p=>{let c=p.c;if(c==='smoke')c=p.life>1?'#6d6475':p.life>.5?'#4a4352':'#332d3a';R(p.x,p.y,p.s,p.s,c)});
+}
 function grow(){dbLevel=Math.min(100,dbLevel+(S.fast?1.5:.04))}
 function dbFull(){say('ts',6,287,70,'Bóveda Oracle','ORA-01653: no puedo extender la tabla en el tablespace. ¡Estoy llena!','bad','Las escrituras fallan: la petición devuelve error y las cartas vuelven a la cola.')}
 function update(dt){
   t+=dt;M.storeBlink=Math.max(0,M.storeBlink-dt);litDs=Math.max(0,litDs-dt);litJms=Math.max(0,litJms-dt);
   if(Math.random()<S.rate*dt&&pending.length<60)pending.push(++reqSeq);
+  shakeT=Math.max(0,shakeT-dt);
+  for(let k=parts.length-1;k>=0;k--){const p=parts[k];p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)parts.splice(k,1)}
+  if(parts.length<400){
+    if(S.crash==='db'&&Math.random()<dt*14)smoke(287,24);
+    if(S.crash==='jms'&&Math.random()<dt*10)smoke(150,142);
+    if(alertKind==='pool'&&Math.random()<dt*8){smoke(96,16);if(Math.random()<.5)burst(60+Math.random()*80,18,3,['#ffe08a'],30)}
+  }
+  if(S.crash==='db'){[...threads,...mdbs].forEach(a=>{if(a.state==='using'||a.state==='toPlug'||a.state==='waitConn')ko(a)});frT+=dt;if(frT>2){frT=0;failRec++}}
+  if(S.crash==='jms')mdbs.forEach(a=>{if(a.state!=='idle'&&a.state!=='ko'&&a.state!=='toHome')ko(a)});
 
   conns.forEach(c=>{if(c.state==='leaked'){c.leakT+=dt;if(c.leakT>INACTIVE){c.state='free';M.leaked++;
     say('reclaim',3,96,16,'Conmutador jdbc/PagosDS','Recuperé la línea #'+(c.i+1)+' abandonada (Inactive Connection Timeout).','good')}}});
@@ -913,6 +1018,7 @@ function update(dt){
   while(waiters.length){const c=freeConn();if(!c)break;grant(waiters.shift(),c)}
   for(let k=waiters.length-1;k>=0;k--){
     const a=waiters[k];a.waitT+=dt;
+    if(S.crash==='pool'&&a.kind==='t'&&a.waitT>RESERVE*.6){ko(a);continue}
     if(a.waitT>RESERVE){
       waiters.splice(k,1);
       if(a.kind==='t'){M.waitFail++;a.failT=1.5;goHome(a);
@@ -927,11 +1033,11 @@ function update(dt){
     a.failT=Math.max(0,a.failT-dt);
     if(a.state==='idle'&&a.i<S.T&&pending.length){pending.shift();a.state='toDoor';a.reqT=0;a.stuck=false;a.path=[{x:DOOR.x,y:DOOR.y}]}
     if(a.state==='using'){if(!S.arch)a.t+=dt;if(a.t>=a.dur){release(a);if(dbLevel>=100){M.dbErr++;a.failT=1.5;goHome(a);dbFull()}else{grow();a.state='toDirJms';a.path=[{x:EX,y:Y_P1},{x:EX,y:Y_LOBBY},{x:DIR_STOP.x,y:DIR_STOP.y}]}}}
-    if(a.state!=='idle'&&!a.stuck&&a.reqT>STUCK){a.stuck=true;
+    if(a.state!=='idle'&&a.state!=='ko'&&!a.stuck&&a.reqT>STUCK){a.stuck=true;
       say('stuck'+a.i,0,a.x,a.y-22,'Empleado H'+(a.i+1),'Llevo demasiado con la misma petición. Me marcan STUCK.','bad','StuckThreadCount subió: un hilo superó Stuck Thread Max Time.')}
   });
   mdbs.forEach(a=>{
-    if(a.state==='idle'&&!S.mdbDown&&queue.length){a.msg=queue.shift();a.carry=true;a.state='toWait';a.path=[{x:EX,y:Y_SOT},{x:EX,y:Y_P1},{x:218,y:Y_P1}]}
+    if(a.state==='idle'&&!S.mdbDown&&S.crash!=='jms'&&queue.length){a.msg=queue.shift();a.carry=true;a.state='toWait';a.path=[{x:EX,y:Y_SOT},{x:EX,y:Y_P1},{x:218,y:Y_P1}]}
     if(a.state==='using'){if(!S.arch)a.t+=dt;if(a.t>=a.dur){
       release(a);
       const full=dbLevel>=100;if(full){M.dbErr++;dbFull()}else grow();
@@ -949,10 +1055,10 @@ function update(dt){
     switch(a.state){
       case'toDoor':a.carry=true;a.state='toDirDs';a.path=[{x:DIR_STOP.x,y:DIR_STOP.y}];break;
       case'toDirDs':litDs=.8;a.state='toWait';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_P1},{x:218,y:Y_P1}];break;
-      case'toWait':arriveWait(a);break;
+      case'toWait':if(S.crash==='db')ko(a);else arriveWait(a);break;
       case'toPlug':a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9):(S.slow?2:.5))*(.7+Math.random()*.6);break;
       case'toDirJms':litJms=.8;a.state='toQueue';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_SOT},{x:Q_IN.x,y:Q_IN.y}];break;
-      case'toQueue':queue.push({id:++msgSeq,fails:0});M.received++;M.storeBlink=.35;goHome(a);break;
+      case'toQueue':if(S.crash==='jms'){ko(a);break}queue.push({id:++msgSeq,fails:0});M.received++;M.storeBlink=.35;goHome(a);break;
       case'toHome':a.state='idle';a.carry=false;break;
     }
   });
@@ -960,6 +1066,9 @@ function update(dt){
   const wq=waiters.length,tWait=waiters.filter(a=>a.kind==='t').length,mWait=wq-tWait;
   dsStreak=tWait>0?dsStreak+dt:0;
   if(dsStreak>3)say('ds',9,96,16,'Conmutador jdbc/PagosDS','No tengo líneas libres: '+wq+' en fila esperando.','warn','WaitingForConnectionCurrentCount > 0 por más de 3 s.');
+  peak=Math.max(peak,conns.filter(c=>c.state!=='free').length+waiters.length);
+  if(!S.crash&&!alertKind&&dsStreak>4&&waiters.length>=3)showAlert('pool');
+  if(alertKind==='pool'&&!S.crash&&waiters.length===0){calmT+=dt;if(calmT>6){alertKind=null;al.hidden=true;$('stageB').classList.remove('alarm','warn')}}else calmT=0;
   if(mWait>0&&tWait>0)say('mdbwait',10,waitX(waiters.findIndex(a=>a.kind==='m')),Y_P1-22,'Back office','Los empleados tienen todas las líneas. Yo también necesito una para escribir.','warn');
   const busyT=threads.filter(a=>a.i<S.T&&a.state!=='idle').length;
   wmStreak=(busyT>=S.T&&pending.length>S.T)?wmStreak+dt:0;
@@ -1015,6 +1124,7 @@ function drawMarkers(){
 }
 function tiles(x0,y0,x1,y1,a,b){for(let y=y0;y<y1;y+=12)for(let x=x0;x<x1;x+=12)R(x,y,Math.min(12,x1-x),Math.min(12,y1-y),((x+y)/12)%2?a:b)}
 function draw(){
+  ctx.save();if(shakeT>0)ctx.translate(Math.round(Math.random()*4-2),Math.round(Math.random()*3-1));
   // cielo y calle
   R(0,0,W,H,'#161120');
   for(let k=0;k<14;k++)R((k*53+11)%W,(k*29+5)%60,1,1,'#3b2c44');
@@ -1083,16 +1193,19 @@ function draw(){
   // personajes
   [...threads.filter(a=>!(a.i>=S.T&&a.state==='idle')),...mdbs].sort((a,b)=>a.y-b.y).forEach(a=>{
     if(inLift(a)){R(a.x-6,a.y-23,12,24,'#5d4a68');R(a.x-6,a.y-23,12,1,'#c9973a')}
+    if(a.state==='ko'){personKO(a);return}
     const moving=a.path.length&&!(a.state==='waitConn'&&a.x===a.path[0].x&&a.y===a.path[0].y);
     person(a.x,a.y,{shirt:a.kind==='t'?(a.stuck?'#c8553d':'#3f9e95'):(S.mdbDown?'#5a5560':'#e6b04a'),hair:a.kind==='t'?'#2b1d14':'#151515',skin:a.kind==='m'&&S.mdbDown?'#8a8090':'#d9a273',walk:moving?a.walk:0,carry:a.carry,fail:a.failT>0,
       tag:(a.kind==='t'?'H':'M')+(a.i+1),tagCol:a.kind==='m'?'#fac775':(a.stuck&&a.state!=='idle'?'#e8605a':'#9fe1cb')});
   });
   if(S.mdbDown)mdbs.forEach(a=>{const z=Math.floor(t*2)%3;R(a.x+6+z,a.y-24-z*2,2,1,'#b3a5bd')});
+  drawCrash();
   if(Math.abs(bot.x-EX)<1&&bot.path.length&&Math.abs(bot.path[0].y-bot.y)>1){R(bot.x-7,bot.y-23,14,24,'#5d4a68')}
   drawBot();
   drawMarkers();
   ctx.strokeStyle='#e6b04a';ctx.lineWidth=1;ctx.setLineDash([2,2]);
   ZONES.filter(z=>z.k===selected).forEach(z=>ctx.strokeRect(z.x+.5,z.y+.5,z.w-1,z.h-1));ctx.setLineDash([]);
+  ctx.restore();
 }
 
 /* ---------- letreros y zonas ---------- */
@@ -1109,7 +1222,10 @@ function renderLabels(){
   L.ds.textContent='PISO 1 · CONMUTADOR = DATA SOURCE jdbc/PagosDS · LÍNEAS EN USO '+used+' DE '+S.N+(wq?' · EN FILA '+wq:'');
   L.ds.classList.toggle('down',wq>0);
   L.inb.textContent='CALLE: '+pending.length;L.inb.classList.toggle('down',pending.length>S.T);
-  L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS';
+  const nko=[...threads,...mdbs].filter(a=>a.state==='ko').length;
+  L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS'+(nko?' · '+nko+' FUERA DE COMBATE':'');
+  L.hil.classList.toggle('down',nko>0);
+  if(alertKind==='pool')poolText();
   L.jms.textContent='SÓTANO · CORRESPONDENCIA = COLA JMS · '+queue.length+' CARTAS';
   L.mdb.textContent='BACK OFFICE = MDB';
   L.ts.textContent=S.arch?'CONGELADA':(dbLevel>=100?'LLENA 100%':'DATOS '+Math.round(dbLevel)+'%');
@@ -1178,6 +1294,11 @@ const CONCEPTS={
   xa:{chip:'XA',title:'Transacciones XA',dl:[
     ['Analogía','El back office saca la carta y escribe en la bóveda como un solo movimiento: o quedan las dos cosas o ninguna.'],
     ['Técnico','Con un driver XA en el Data Source y una Connection Factory con XA habilitado, la cola y la BD participan en un two-phase commit. Si algo falla, el mensaje vuelve a la cola y se reintenta.']]},
+  fallas:{chip:'Fallas graves',title:'Las tres fallas graves',dl:[
+    ['BD caída','La bóveda explota y la calle queda cortada. El pool no puede abrir ni probar conexiones, así que cada petición falla aunque WebLogic esté sano. En el servidor se ve FailuresToReconnectCount subiendo y conexiones activas en cero.'],
+    ['JMS Server caído','Revienta la correspondencia. Lo típico es que el File Store se quede sin disco: el JMS Server deja de aceptar mensajes, el envío lanza JMSException y los MDB se detienen. Lo que ya estaba persistido no se pierde.'],
+    ['Pool insuficiente','No es que algo se rompa: la demanda supera las líneas. La fila crece y las peticiones fallan por Connection Reserve Timeout. La alerta calcula la demanda pico y recomienda un Maximum Capacity, pero antes hay que descartar consultas lentas y confirmar con el DBA que la BD aguanta más sesiones.'],
+    ['Por qué importa','Las tres terminan en peticiones con error, pero la causa y el equipo que la resuelve son distintos: DBA, infraestructura de mensajería o capacidad del pool.']]},
   claude:{chip:'Claude',title:'Claude, ingeniero de mantenimiento',dl:[
     ['Analogía','Cuando suena una alerta, toma el ascensor hasta el piso del problema, saca la llave y propone el paso del runbook.'],
     ['Técnico','Representa el diagnóstico del equipo de soporte. Solo propone; los cambios los aprueba una persona.']]},
@@ -1279,17 +1400,24 @@ const SCEN=[
   {id:'llena',name:'Bóveda llena',sub:'ORA-01653',level:94,set:{rate:.8,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:true},
    story:'El tablespace está casi lleno y sigue creciendo. Al llegar al 100 %, cada escritura falla: los empleados reciben error (X roja) y las cartas del back office rebotan hasta caer en la bandeja de errores. WebLogic está sano; el problema está en la bóveda. Usa “Llamar al DBA”.'},
   {id:'congelada',name:'BD congelada',sub:'Archivelogs llenos',set:{rate:.8,T:6,N:5,slow:false,leak:false,mdbDown:false,arch:true},
-   story:'Se llenó el espacio de archivelogs y la BD deja de aceptar cambios. No responde con error: se queda esperando. Las líneas quedan ocupadas, se forma fila, los empleados pasan a STUCK y las peticiones se acumulan en la calle. Todo parece colgado, pero la causa está en la bóveda. Usa “Llamar al DBA”.'}
+   story:'Se llenó el espacio de archivelogs y la BD deja de aceptar cambios. No responde con error: se queda esperando. Las líneas quedan ocupadas, se forma fila, los empleados pasan a STUCK y las peticiones se acumulan en la calle. Todo parece colgado, pero la causa está en la bóveda. Usa “Llamar al DBA”.'},
+  {id:'caidabd',name:'Se cae la BD',sub:'Falla grave',crash:'db',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
+   story:'La bóveda explota y deja de responder. Las líneas del conmutador se ponen rojas, la calle queda cortada y todo empleado que intenta usar una línea cae fuera de combate. Suena la alarma: es una falla de la BD, no de WebLogic. Usa el botón de la alerta para llamar al DBA.'},
+  {id:'caidajms',name:'Se cae el JMS',sub:'File Store sin espacio',crash:'jms',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
+   story:'La correspondencia revienta: el archivo en disco se quedó sin espacio y el JMS Server deja de recibir cartas. Los empleados que bajan a dejar su tarea caen al llegar y el back office se desploma. Las cartas que ya estaban guardadas siguen ahí. La alerta dice cómo recuperarlo.'},
+  {id:'poolchico',name:'Pool insuficiente',sub:'Hay que aumentarlo',crash:'pool',set:{rate:1.6,T:10,N:2,slow:false,leak:false,mdbDown:false},
+   story:'Solo hay 2 líneas para 10 empleados. La fila del conmutador crece, saltan chispas y los empleados que esperan demasiado colapsan. La alerta calcula la demanda pico y recomienda un nuevo Maximum Capacity; aplícalo y mira cómo se recuperan.'}
 ];
 const scenEl=$('scenB'),storyEl=$('storyB');
 SCEN.forEach(s=>{const b=document.createElement('button');b.className='sc';b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
-function applyScen(s){Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;
+function applyScen(s){if(S.crash||alertKind)endCrash(true);Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
   scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='scB-'+s.id))}
 
 /* ---------- controles ---------- */
 function sync(){
   $('bRate').value=S.rate;$('bRateV').textContent=S.rate;$('bT').value=S.T;$('bTV').textContent=S.T;$('bN').value=S.N;$('bNV').textContent=S.N;
-  $('bSlow').setAttribute('aria-pressed',S.slow);$('bLeak').setAttribute('aria-pressed',S.leak);$('bMdb').setAttribute('aria-pressed',S.mdbDown);$('bFill').setAttribute('aria-pressed',S.fast);$('bArch').setAttribute('aria-pressed',S.arch);$('bPause').setAttribute('aria-pressed',S.paused);
+  $('bSlow').setAttribute('aria-pressed',S.slow);$('bLeak').setAttribute('aria-pressed',S.leak);$('bMdb').setAttribute('aria-pressed',S.mdbDown);$('bFill').setAttribute('aria-pressed',S.fast);$('bArch').setAttribute('aria-pressed',S.arch);
+  $('bCdb').setAttribute('aria-pressed',S.crash==='db');$('bCjms').setAttribute('aria-pressed',S.crash==='jms');$('bCpool').setAttribute('aria-pressed',S.crash==='pool');$('bPause').setAttribute('aria-pressed',S.paused);
 }
 $('bRate').oninput=e=>{S.rate=+e.target.value;$('bRateV').textContent=S.rate};
 $('bT').oninput=e=>{S.T=+e.target.value;$('bTV').textContent=S.T};
@@ -1298,6 +1426,9 @@ $('bSlow').onclick=()=>{S.slow=!S.slow;sync()};
 $('bLeak').onclick=()=>{S.leak=!S.leak;sync()};
 $('bFill').onclick=()=>{S.fast=!S.fast;sync()};
 $('bArch').onclick=()=>{S.arch=!S.arch;sync()};
+$('bCdb').onclick=()=>S.crash==='db'?endCrash(false):startCrash('db');
+$('bCjms').onclick=()=>S.crash==='jms'?endCrash(false):startCrash('jms');
+$('bCpool').onclick=()=>S.crash==='pool'?endCrash(false):startCrash('pool');
 $('bDba').onclick=()=>{let did=false;
   if(S.arch){S.arch=false;did=true;say('dba1',0,287,40,'DBA','Respaldé y depuré los archivelogs. La bóveda vuelve a aceptar cambios.','good')}
   if(dbLevel>=80){dbLevel=55;S.fast=false;did=true;say('dba2',0,287,70,'DBA','Agregué un datafile al tablespace. Hay espacio otra vez.','good')}
@@ -1313,7 +1444,7 @@ const MX=[
   ['ExecuteThreadTotalCount',()=>S.T,()=>'ok'],
   ['ExecuteThreadIdleCount',()=>threads.filter(a=>a.i<S.T&&a.state==='idle').length,v=>v===0?'warn':'ok'],
   ['QueueLength',()=>pending.length,v=>v>S.T*2?'bad':v>S.T?'warn':'ok'],
-  ['HoggingThreadCount',()=>threads.filter(a=>a.state!=='idle'&&a.reqT>HOG&&!a.stuck).length,v=>v?'warn':'ok'],
+  ['HoggingThreadCount',()=>threads.filter(a=>a.state!=='idle'&&a.state!=='ko'&&a.reqT>HOG&&!a.stuck).length,v=>v?'warn':'ok'],
   ['StuckThreadCount',()=>threads.filter(a=>a.stuck&&a.state!=='idle').length,v=>v?'bad':'ok'],
   ['JDBCDataSourceRuntime · PagosDS'],
   ['CurrCapacity',()=>S.N,()=>'ok'],
@@ -1331,7 +1462,12 @@ const MX=[
   ['Oracle (lo ve el DBA, no WebLogic)'],
   ['Tablespace usado %',()=>Math.round(dbLevel),v=>v>=100?'bad':v>=85?'warn':'ok'],
   ['Errores ORA-01653',()=>M.dbErr,v=>v?'bad':'ok'],
-  ['Archivelogs llenos',()=>S.arch?'SÍ':'NO',v=>v==='SÍ'?'bad':'ok']
+  ['Archivelogs llenos',()=>S.arch?'SÍ':'NO',v=>v==='SÍ'?'bad':'ok'],
+  ['Fallas graves'],
+  ['Empleados fuera de combate',()=>[...threads,...mdbs].filter(a=>a.state==='ko').length,v=>v?'bad':'ok'],
+  ['FailuresToReconnectCount · PagosDS',()=>failRec,v=>v?'bad':'ok'],
+  ['HealthState · PagosJMSServer',()=>S.crash==='jms'?'CRÍTICO':'OK',v=>v==='OK'?'ok':'bad'],
+  ['Maximum Capacity recomendado',()=>alertKind==='pool'?recN:'—',v=>v==='—'?'ok':'warn']
 ];
 const mxEl=$('mxB'),cells=[];
 MX.forEach(r=>{

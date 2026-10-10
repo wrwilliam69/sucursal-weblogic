@@ -28,6 +28,8 @@ Abre `index.html` en el navegador. No necesita instalación ni servidor. Se ve m
 
 Escenarios incluidos: pool corto, fuga de conexiones, BD lenta e hilos stuck, MDB detenido, tablespace lleno (`ORA-01653`) y archivelogs llenos (`ORA-00257`).
 
+Fallas graves con alarma: **BD caída**, **JMS Server caído** (File Store sin espacio) y **pool insuficiente**. Los personajes afectados quedan fuera de combate, suena la sirena y un tablero de alerta explica la causa, las métricas que la delatan y cómo recuperarse (en el caso del pool, con un Maximum Capacity recomendado).
+
 Las métricas usan los nombres reales de los MBeans de runtime de WebLogic (`ActiveConnectionsCurrentCount`, `WaitingForConnectionCurrentCount`, `MessagesCurrentCount`, `StuckThreadCount`…).
 
 ## Personajes
