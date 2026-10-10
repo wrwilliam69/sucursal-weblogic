@@ -991,6 +991,14 @@ function endCrash(quiet){
   [...threads,...mdbs].forEach(a=>{if(a.state==='ko'){a.reqT=0;goHome(a)}});
   sync();
 }
+function resetWorld(){
+  pending.length=0;leaving.length=0;queue.length=0;waiters.length=0;parts.length=0;markers.length=0;
+  conns.forEach(c=>{c.state='free';c.owner=null;c.leakT=0});
+  [...threads,...mdbs].forEach(a=>{a.state='idle';a.path=[];a.x=a.home.x;a.y=a.home.y;a.conn=null;a.carry=false;a.stuck=false;a.failT=0;a.reqT=0;a.msg=null;a.walk=0;a.t=0});
+  Object.assign(M,{waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0});
+  dbLevel=55;failRec=0;frT=0;peak=0;calmT=0;dsStreak=0;wmStreak=0;shakeT=0;lastAlert={};litDs=0;litJms=0;
+  bot.state='idle';bot.path=[];bot.x=bot.home.x;bot.y=bot.home.y;
+}
 function personKO(a){
   const x=Math.round(a.x),y=Math.round(a.y),sh=a.kind==='t'?'#3f9e95':'#e6b04a',hair=a.kind==='t'?'#2b1d14':'#151515';
   R(x-9,y-3,4,2,'#2c2436');R(x-5,y-4,6,4,sh);R(x+1,y-5,5,4,'#d9a273');R(x+5,y-5,1,4,hair);
@@ -1434,7 +1442,7 @@ const SCEN=[
 ];
 const scenEl=$('scenB'),storyEl=$('storyB');
 SCEN.forEach(s=>{const b=document.createElement('button');b.className='sc';b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
-function applyScen(s){if(S.crash||alertKind)endCrash(true);Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
+function applyScen(s){if(S.crash||alertKind)endCrash(true);resetWorld();Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
   scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='scB-'+s.id))}
 
 /* ---------- controles ---------- */
