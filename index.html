@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sucursal WebLogic</title>
+<style>html{color-scheme:dark}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: escena pixel (entidades → portero SLB → dos nodos → BD/JMS) con controles debajo; guía y métricas a la derecha; una columna en móvil. Estética única oscura de sala de juegos de 16 bits con latón de banco. */
+:root{
+  color-scheme: dark;
+  --bg:#18121f;
+  --panel:#241b2e;
+  --panel-2:#2f2439;
+  --line:#43364f;
+  --fg:#efe6d8;
+  --muted:#b3a5bd;
+  --brass:#e6b04a;
+  --teal:#56b8ad;
+  --good:#7fc77a;
+  --warn:#f0a63a;
+  --bad:#e8605a;
+  --f-display:"Silkscreen","Courier New",monospace;
+  --f-body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-num:"VT323","Courier New",monospace;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:20px 40px}
+.wrap{max-width:1260px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px 24px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3.4vw,34px);letter-spacing:.02em;margin:0;line-height:1.1;text-wrap:balance;color:var(--brass)}
+.sub{margin:4px 0 0;color:var(--muted);max-width:66ch}
+.tag{font-family:var(--f-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--bg);background:var(--teal);padding:4px 8px}
+.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:940px){.grid{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+.stage{position:relative;border:3px solid var(--line);background:#120d18;box-shadow:0 0 0 3px #0c0810}
+.stage canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;image-rendering:pixelated;image-rendering:crisp-edges;cursor:pointer}
+.lbl{position:absolute;font-family:var(--f-display);font-size:9px;letter-spacing:.05em;color:var(--fg);background:rgba(18,13,24,.8);padding:0 4px;pointer-events:none;white-space:nowrap;line-height:1.5}
+.lbl.down{background:var(--bad);color:#1d1424}
+@media (max-width:620px){.lbl{display:none}}
+.bubble{position:absolute;transform:translate(-50%,calc(-100% - 6px));max-width:min(230px,46vw);background:var(--fg);color:#1d1424;font-family:var(--f-body);font-weight:700;font-size:12px;line-height:1.25;padding:6px 8px;border:2px solid #1d1424;box-shadow:3px 3px 0 #0c0810;pointer-events:none;animation:pop .18s steps(3) both;z-index:3}
+.bubble::after{content:"";position:absolute;left:50%;bottom:-8px;margin-left:-5px;border:5px solid transparent;border-top-color:#1d1424}
+.bubble.bad{background:#ffd9d4}.bubble.good{background:#dff3d6}.bubble.warn{background:#ffe9c2}
+.bubble .who{display:block;font-family:var(--f-display);font-size:9px;letter-spacing:.06em;font-weight:400;color:#5a4a62;margin-bottom:2px}
+@keyframes pop{from{transform:translate(-50%,calc(-100% + 4px));opacity:0}}
+@media (prefers-reduced-motion:reduce){.bubble{animation:none}}
+
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;background:var(--panel);border:2px solid var(--line);padding:14px}
+.ctl{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ctl label,.ctl .k{font-family:var(--f-display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ctl .v{font-family:var(--f-num);font-size:24px;line-height:1;color:var(--brass)}
+.row{display:flex;align-items:center;gap:10px}
+input[type=range]{flex:1;min-width:0;accent-color:var(--brass)}
+.toggles{display:flex;flex-wrap:wrap;gap:8px}
+.tg{font-family:var(--f-display);font-size:11px;letter-spacing:.04em;padding:8px 10px;background:var(--panel-2);color:var(--fg);border:2px solid var(--line);cursor:pointer}
+.tg[aria-pressed="true"]{border-color:var(--brass);background:#3d2f2a;color:var(--brass)}
+.tg.danger[aria-pressed="true"]{border-color:var(--bad);background:#3a2027;color:var(--bad)}
+.tg:focus-visible,.sc:focus-visible,.chip:focus-visible,input:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+.card{background:var(--panel);border:2px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card h2{font-family:var(--f-display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--brass)}
+.scen{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sc{text-align:left;font-family:var(--f-body);font-weight:700;font-size:13px;padding:8px 10px;background:var(--panel-2);color:var(--fg);border:2px solid var(--line);cursor:pointer}
+.sc small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.sc[aria-pressed="true"]{border-color:var(--teal)}
+.story{margin:0;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--f-display);font-size:10px;letter-spacing:.05em;padding:5px 8px;background:transparent;color:var(--fg);border:2px solid var(--line);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--teal);color:#14101a;border-color:var(--teal)}
+.def h3{margin:0;font-size:17px;text-wrap:balance}
+.def dl{margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.def dt{font-family:var(--f-display);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.def dd{margin:0;font-size:14px}
+.def code,.mx code{font-family:var(--f-num);font-size:17px;color:var(--teal);word-break:break-word}
+
+.mx{display:flex;flex-direction:column;gap:2px}
+.mx .grp{font-family:var(--f-display);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:8px}
+.mx .grp:first-child{margin-top:0}
+.m{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.m code{font-size:16px}
+.m b{font-family:var(--f-num);font-size:24px;font-weight:400;line-height:1;font-variant-numeric:tabular-nums;min-width:3ch;text-align:right;padding:0 6px;border-left:4px solid transparent}
+.m b.ok{border-color:var(--good)}.m b.warn{border-color:var(--warn);color:var(--warn)}.m b.bad{border-color:var(--bad);color:var(--bad)}
+.note{font-size:12px;color:var(--muted);margin:0}
+
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px;min-height:6em}
+.log li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;border-left:4px solid var(--line);padding-left:8px}
+.log time{font-family:var(--f-num);font-size:17px;color:var(--muted);line-height:1.1}
+.log li .who{font-family:var(--f-display);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--brass);margin-right:6px}
+.log li .det{display:block;font-size:12px;color:var(--muted)}
+.log li:first-child{background:var(--panel-2);padding:8px 10px;font-size:15px}
+.board{border-color:var(--brass)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;line-height:1.3;background:var(--panel);border:3px solid var(--line);border-top:0;padding:10px 14px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend b{font-family:var(--f-display);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:400;width:100%}
+.sw{display:inline-block;width:8px;height:14px;flex:none}
+.sw.p{width:10px;height:12px;border-top:4px solid #2b1d14}
+.sw.doc{width:10px;height:8px}
+.stage.nolabels .lbl{display:none}
+.log .bad{border-color:var(--bad)}.log .warn{border-color:var(--warn)}.log .good{border-color:var(--good)}.log .info{border-color:var(--teal)}
+footer{color:var(--muted);font-size:13px;max-width:84ch}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;border-bottom:2px solid var(--line);padding-bottom:10px}
+.tab{font-family:var(--f-display);font-size:12px;letter-spacing:.05em;padding:10px 14px;background:var(--panel);color:var(--muted);border:2px solid var(--line);cursor:pointer;text-align:left}
+.tab small{display:block;font-family:var(--f-body);font-size:12px;letter-spacing:0;color:var(--muted)}
+.tab[aria-selected="true"]{color:var(--brass);border-color:var(--brass);background:#2c2230}
+.tab:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.view{display:flex;flex-direction:column;gap:18px}
+.cfg ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.cfg p{margin:0;font-size:14px}
+.cfg .path{font-family:var(--f-num);font-size:17px;color:var(--brass)}
+.code{margin:0;background:#120d18;border:2px solid var(--line);padding:10px 12px;overflow-x:auto;font-family:var(--f-num);font-size:16px;line-height:1.25;color:var(--fg);white-space:pre}
+.code .c{color:var(--muted)}
+.cfg code{font-family:var(--f-num);font-size:17px;color:var(--teal)}
+</style>
+
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Sucursal WebLogic</h1>
+      <p class="sub">La capa media de pagos en pixel art, vista desde dos alturas: cómo viajan las transacciones entre los ambientes, y qué pasa dentro de un servidor WebLogic con los hilos, el pool de conexiones y las colas. Mandy, la gerente, avisa cuando algo se complica.</p>
+    </div>
+    <span class="tag">Punto cero · datos simulados</span>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tabA" aria-selected="true" aria-controls="viewA">1 · La central<small>Ambientes: entidades, SLB y nodos</small></button>
+    <button class="tab" role="tab" id="tabB" aria-selected="false" aria-controls="viewB">2 · Dentro de WebLogic<small>Hilos, pool JDBC, colas JMS</small></button>
+  </div>
+
+  <section class="view" id="viewA" role="tabpanel" aria-labelledby="tabA">
+  <div class="stage" id="stage">
+    <canvas id="scene" aria-label="Central de pagos animada: entidades, portero SLB, dos nodos con cajeros, base de datos, archivador JMS y la gata Mandy como gerente"></canvas>
+    <div id="labels"></div>
+    <div id="bubbles"></div>
+  </div>
+  <div class="grid">
+    <div class="col">
+      <div class="card board">
+        <h2>Tablero de mensajes</h2>
+        <ul class="log" id="log"></ul>
+      </div>
+
+      <div class="controls">
+        <div class="ctl">
+          <label for="rate">Transacciones por segundo</label>
+          <div class="row"><input id="rate" type="range" min="0.5" max="8" step="0.5" value="2"><span class="v" id="rateV">2</span></div>
+        </div>
+        <div class="ctl">
+          <label for="pool">Maximum Capacity por nodo</label>
+          <div class="row"><input id="pool" type="range" min="2" max="12" step="1" value="4"><span class="v" id="poolV">4</span></div>
+        </div>
+        <div class="ctl" style="grid-column:1/-1">
+          <span class="k">Situaciones</span>
+          <div class="toggles">
+            <button class="tg danger" id="tSlow" aria-pressed="false">BD lenta</button>
+            <button class="tg danger" id="tNode" aria-pressed="false">Cae NODO-02</button>
+            <button class="tg danger" id="tDown" aria-pressed="false">Consumidor JMS caído</button>
+            <button class="tg" id="tIdem" aria-pressed="true">Idempotencia activa</button>
+            <button class="tg" id="tPause" aria-pressed="false">Pausa</button>
+            <button class="tg" id="tLbl" aria-pressed="true">Nombres</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <h2>Escenarios</h2>
+        <div class="scen" id="scen"></div>
+        <p class="story" id="story"></p>
+      </div>
+      <div class="card def">
+        <h2>Diccionario</h2>
+        <div class="chips" id="chips"></div>
+        <div id="defBody"></div>
+      </div>
+      <div class="card">
+        <h2>Métricas en vivo</h2>
+        <div class="mx" id="mx"></div>
+        <p class="note">Los nombres son atributos reales de los MBeans de runtime de WebLogic. Cada nodo del clúster tiene su propio pool. Los valores son simulados; en la fase 5 se leerán de la API REST o de Prometheus.</p>
+      </div>
+    </div>
+  </div>
+  </section>
+
+  <section class="view" id="viewB" role="tabpanel" aria-labelledby="tabB" hidden>
+  <div class="stage" id="stageB">
+    <canvas id="sceneB" aria-label="Interior de un Managed Server: hilos del Work Manager, Data Source con sus conexiones a la BD, cola JMS con su File Store y consumidores MDB"></canvas>
+    <div id="labelsB"></div>
+    <div id="bubblesB"></div>
+  </div>
+  <div class="legend" aria-label="Leyenda de la escena">
+    <b>Qué es cada cosa</b>
+    <span><i class="sw" style="background:#c9973a;width:14px;height:10px"></i>Edificio dorado = el Managed Server ms1</span>
+    <span><i class="sw p" style="background:#3f9e95"></i>Empleado verde (H1, H2…) = un hilo</span>
+    <span><i class="sw p" style="background:#e6b04a;border-top-color:#151515"></i>Empleado amarillo (M1, M2) = un MDB del back office</span>
+    <span><i class="sw" style="background:#5d6b8a"></i>Columna del conmutador = una conexión a la BD, libre</span>
+    <span><i class="sw" style="background:#56b8ad"></i>en uso</span>
+    <span><i class="sw" style="background:#e8605a"></i>sin colgar (fuga)</span>
+    <span><i class="sw" style="background:#2c3240"></i>no existe: por encima de Maximum Capacity</span>
+    <span><i class="sw" style="background:#e6b04a;height:10px"></i>Fila del directorio encendida = alguien consultó JNDI</span>
+    <span><i class="sw doc" style="background:#efe6d8"></i>Carta = una tarea pendiente para el back office</span>
+    <span><i class="sw" style="background:#5d6b8a;width:14px"></i>Bóveda de enfrente = la BD, fuera del servidor</span>
+  </div>
+  <div class="grid">
+    <div class="col">
+      <div class="card board">
+        <h2>Tablero de mensajes</h2>
+        <ul class="log" id="logB"></ul>
+      </div>
+      <div class="controls">
+        <div class="ctl">
+          <label for="bRate">Peticiones por segundo</label>
+          <div class="row"><input id="bRate" type="range" min="0.2" max="3" step="0.2" value="0.6"><span class="v" id="bRateV">0.6</span></div>
+        </div>
+        <div class="ctl">
+          <label for="bT">Hilos disponibles</label>
+          <div class="row"><input id="bT" type="range" min="2" max="12" step="1" value="6"><span class="v" id="bTV">6</span></div>
+        </div>
+        <div class="ctl">
+          <label for="bN">Maximum Capacity</label>
+          <div class="row"><input id="bN" type="range" min="2" max="12" step="1" value="5"><span class="v" id="bNV">5</span></div>
+        </div>
+        <div class="ctl" style="grid-column:1/-1">
+          <span class="k">Situaciones</span>
+          <div class="toggles">
+            <button class="tg danger" id="bSlow" aria-pressed="false">BD lenta</button>
+            <button class="tg danger" id="bLeak" aria-pressed="false">Fuga de conexiones</button>
+            <button class="tg danger" id="bMdb" aria-pressed="false">MDB detenido</button>
+            <button class="tg danger" id="bFill" aria-pressed="false">Bóveda creciendo rápido</button>
+            <button class="tg danger" id="bArch" aria-pressed="false">Archivelogs llenos</button>
+            <button class="tg" id="bDba">Llamar al DBA</button>
+            <button class="tg" id="bPause" aria-pressed="false">Pausa</button>
+            <button class="tg" id="bLbl" aria-pressed="true">Nombres</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <h2>Escenarios</h2>
+        <div class="scen" id="scenB"></div>
+        <p class="story" id="storyB"></p>
+      </div>
+      <div class="card cfg">
+        <h2>Cómo se arma y se vigila</h2>
+        <div class="chips" id="cfgChips"></div>
+        <div id="cfgBody"></div>
+      </div>
+      <div class="card def">
+        <h2>Diccionario</h2>
+        <div class="chips" id="chipsB"></div>
+        <div id="defBodyB"></div>
+      </div>
+      <div class="card">
+        <h2>Métricas en vivo · ms1</h2>
+        <div class="mx" id="mxB"></div>
+        <p class="note">Atributos reales de <code>ThreadPoolRuntime</code>, <code>JDBCDataSourceRuntime</code> y <code>JMSDestinationRuntime</code>. Valores simulados.</p>
+      </div>
+    </div>
+  </div>
+  </section>
+
+  <footer>Modelo didáctico con datos simulados y entidades genéricas; no representa la arquitectura interna de ninguna empresa. Escala de tiempo de demostración. Gerente honoraria: Mandy.</footer>
+</div>
+
+<script>
+(function(){
+const W=320,H=180;
+const cv=document.getElementById('scene');
+const ctx=cv.getContext('2d');
+cv.width=W;cv.height=H;ctx.imageSmoothingEnabled=false;
+
+/* ---------- datos ---------- */
+const ENT=[
+  {name:'Red internacional A',mode:'client',color:'#3d7fc8',w:1.4},
+  {name:'Red internacional B',mode:'client',color:'#d89b3a',w:1.2},
+  {name:'Banco emisor',mode:'server',color:'#5ca85c',w:1},
+  {name:'Red de cajeros',mode:'server',color:'#c8553d',w:.9},
+  {name:'Pasarela de pagos',mode:'server',color:'#8a6ad0',w:.8},
+  {name:'Datáfonos',mode:'server',color:'#4bb0b8',w:1.3}
+];
+ENT.forEach((e,i)=>{e.y0=6+i*29;e.door={x:60,y:e.y0+20}});
+const WSUM=ENT.reduce((a,e)=>a+e.w,0);
+
+const S={rate:2,N:4,slow:false,nodeDown:false,down:false,idem:true,paused:false};
+const RESERVE=10,PATIENCE=4,SPEED=50;
+const GATE={x:92,y:90};
+const nodes=[0,1].map(n=>({n,name:n?'NODO-02':'NODO-01',off:n*88,queue:[],slots:Array.from({length:12},()=>({busy:false,c:null,t:0,dur:0,tx:0,anim:0})),waitStreak:0,high:0,waitFail:0}));
+let clients=[],retries=[],msgs=[];
+const charged=new Set();
+let txSeq=4200,cid=0,simTime=0;
+const M={received:0,dlq:0,dups:0,idem:0,reroutes:0};
+const worker={busy:false,t:0,msg:null,anim:0};
+let lastAlert={},selected='intro';
+
+const HAIR=['#2b1d14','#5a3a1e','#151515','#9a4f2a','#d8c07a'];
+const SKIN=['#f1c8a0','#d9a273','#a8714a','#7a4a2a'];
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ---------- geometría ---------- */
+const Y=(nd,v)=>v+nd.off;
+function layoutCount(nd){let hi=0;nd.slots.forEach((s,i)=>{if(s.busy)hi=Math.max(hi,i+1)});return Math.max(S.N,hi)}
+function slotX(nd,i){const w=142/layoutCount(nd);return Math.round(104+w*(i+.5))}
+function qPos(nd,i){
+  if(i<16)return{x:236-i*8,y:Y(nd,70)};
+  if(i<28)return{x:108+(i-16)*8,y:Y(nd,81)};
+  return{x:104,y:Y(nd,81)};
+}
+const ZONES=[
+  {k:'claude',x:283,y:156,w:16,h:24},
+  ...ENT.map(e=>({k:'entidad',x:0,y:e.y0,w:60,h:26})),
+  {k:'slb',x:74,y:64,w:26,h:36},
+  {k:'mandy',x:258,y:152,w:28,h:24},
+  {k:'bd',x:272,y:2,w:42,h:42},
+  {k:'jms',x:258,y:86,w:32,h:58},
+  {k:'mdb',x:290,y:124,w:16,h:26},
+  {k:'dlq',x:288,y:146,w:30,h:14},
+  {k:'nodos',x:100,y:2,w:150,h:12},{k:'nodos',x:100,y:90,w:150,h:12},
+  {k:'pool',x:100,y:14,w:150,h:44},{k:'pool',x:100,y:102,w:150,h:44},
+  {k:'fila',x:100,y:58,w:150,h:28},{k:'fila',x:100,y:146,w:150,h:30}
+];
+
+/* ---------- etiquetas ---------- */
+const labelsEl=document.getElementById('labels');
+function lbl(x,y,t,id){const s=document.createElement('span');s.className='lbl';s.style.left=(x/W*100)+'%';s.style.top=(y/H*100)+'%';s.textContent=t;if(id)s.id=id;labelsEl.appendChild(s);return s}
+ENT.forEach(e=>lbl(1,e.y0-1,e.name+(e.mode==='client'?' ⇠':' ⇢')));
+lbl(76,56,'SLB');
+lbl(101,4,'NODO-01','lblN1');lbl(101,92,'NODO-02','lblN2');
+lbl(286,44,'BD');lbl(258,146,'JMS');lbl(296,160,'DLQ');lbl(254,176,'MANDY · GERENTE');
+
+/* ---------- simulación ---------- */
+function pickEnt(){let r=Math.random()*WSUM;for(const e of ENT){if((r-=e.w)<=0)return e}return ENT[0]}
+function spawn(ent,tx,retry){
+  ent=ent||pickEnt();
+  const c={id:++cid,ent,x:ent.door.x,y:ent.door.y,tx:tx||++txSeq,retry:!!retry,shirt:ent.color,hair:pick(HAIR),skin:pick(SKIN),state:'toGate',waited:0,walk:0,angry:false,paper:false,node:null,
+    path:[{x:70,y:ent.door.y},{x:84,y:GATE.y+(ent.door.y-GATE.y)*.15},{x:GATE.x,y:GATE.y}]};
+  clients.push(c);
+}
+function route(c){
+  let nd;
+  if(S.nodeDown) nd=nodes[0];
+  else{const l=nodes.map(x=>x.queue.length+x.slots.filter(s=>s.busy).length);nd=l[0]<=l[1]?nodes[0]:nodes[1]}
+  c.node=nd;c.state='toNode';c.path=[{x:100,y:Y(nd,70)}];
+}
+function leaveHome(c,from){
+  c.state='leave';c.angry=true;
+  c.path=[...(from||[]),{x:100,y:c.node?Y(c.node,70):GATE.y},{x:GATE.x,y:GATE.y},{x:70,y:c.ent.door.y},{x:c.ent.door.x,y:c.ent.door.y}];
+}
+function service(){const base=S.slow?4.2:1.1;return base*(0.7+Math.random()*0.6)}
+function charge(tx,nd,i){
+  const x=slotX(nd,i),y=Y(nd,16);
+  if(charged.has(tx)){
+    if(S.idem){M.idem++;alert('idem'+tx,0,x,y,nd.name,'Radicado #'+tx+' ya está aplicado. No cobro de nuevo.','good');return}
+    M.dups++;alert('dup'+tx,0,x,y,nd.name,'¡Cobro doble! El radicado #'+tx+' se debitó otra vez.','bad');
+  } else charged.add(tx);
+  msgs.push({tx,fails:0});M.received++;
+}
+
+/* ---------- Claude, ingeniero de infraestructura ---------- */
+const bot={x:291,y:178,home:{x:291,y:178},state:'idle',t:0,walk:0,tx:0,ty:0,msg:''};
+function botGo(x,y,msg){if(bot.state!=='idle')return;bot.state='going';bot.tx=x;bot.ty=y;bot.msg=msg}
+function botTrigger(key){
+  const m=key.match(/^more(\d)/);
+  if(m){const nd=nodes[+m[1]];return botGo(176,Y(nd,62),'Pool de '+nd.name+' saturado. Runbook: revisar consultas lentas con el DBA y, si el tráfico es real, subir Maximum Capacity.')}
+  if(key==='jms')return botGo(250,152,'Cola represada. Verifico que el consumidor esté activo y reviso la DLQ.');
+  if(key==='slbdown')return botGo(176,150,'Reviso NODO-02: logs del servidor, estado en la consola y reinicio controlado.');
+  if(key==='slow')return botGo(268,52,'BD lenta. Con el DBA: sesiones bloqueadas y consultas largas.');
+  if(key.startsWith('dup'))return botGo(176,64,'Cobro doble. Activar control de idempotencia y conciliar el radicado.');
+  if(key==='dlq')return botGo(300,168,'Mensaje en la DLQ. Lo reviso antes de reprocesarlo a mano.');
+}
+function botUpdate(dt){
+  bot.t+=dt;
+  if(bot.state==='going'||bot.state==='back'){
+    const gx=bot.state==='going'?bot.tx:bot.home.x,gy=bot.state==='going'?bot.ty:bot.home.y;
+    const dx=gx-bot.x,dy=gy-bot.y,d=Math.hypot(dx,dy),st=44*dt;
+    if(d<=st){bot.x=gx;bot.y=gy;
+      if(bot.state==='going'){bot.state='working';bot.t=0;alert('bot'+simTime,0,bot.x,bot.y-24,'Claude · infra',bot.msg,'info')}
+      else bot.state='idle'}
+    else{bot.x+=dx/d*st;bot.y+=dy/d*st;bot.walk+=dt}
+  } else if(bot.state==='working'&&bot.t>3.4)bot.state='back';
+}
+function drawBot(){
+  const x=Math.round(bot.x),y=Math.round(bot.y),moving=bot.state==='going'||bot.state==='back';
+  const f=moving?Math.floor(bot.walk*8)%2:0,bob=!moving&&Math.floor(bot.t*2)%2?1:0;
+  R(x-3,y-3,2,3,'#3a3040');R(x+1,y-3,2,3,'#3a3040');R(f?x-3:x+1,y-1,2,1,'#120d18');
+  R(x-4,y-10,8,7,'#d97757');R(x-4,y-7,8,1,'#f2e2a0');R(x-5,y-9,1,4,'#d97757');R(x+4,y-9,1,4,'#d97757');
+  R(x-3,y-16+bob,6,6,'#2b2431');
+  const bl=Math.floor(bot.t*3)%9===0;R(x-2,y-14+bob,1,bl?1:2,'#7fe0d0');R(x+1,y-14+bob,1,bl?1:2,'#7fe0d0');
+  R(x-5,y-17+bob,10,1,'#d9a520');R(x-4,y-19+bob,8,2,'#f2c230');R(x-1,y-20+bob,2,1,'#f2c230');
+  if(bot.state==='working'){
+    const w=Math.floor(bot.t*8)%2;R(x+5,y-11+w,1,4,'#b3a5bd');R(x+5,y-12+w,3,1,'#b3a5bd');
+    if(w){R(x+8,y-13,1,1,'#ffe08a');R(x+7,y-15,1,1,'#ffe08a');R(x+9,y-11,1,1,'#ffe08a')}
+  } else if(!moving){R(x-8,y-9,3,4,'#efe6d8');R(x-7,y-8,1,1,'#8a7d92')}
+}
+
+function setNodeDown(v){
+  S.nodeDown=v;
+  const nd=nodes[1];
+  if(v){
+    nd.slots.forEach(s=>{
+      if(s.busy){if(s.c){retries.push({at:simTime+1.5,tx:s.tx,ent:s.c.ent});leaveHome(s.c)}s.busy=false;s.c=null}
+    });
+    nd.queue.splice(0).forEach(c=>{c.state='toGate';c.path=[{x:100,y:c.y},{x:GATE.x,y:GATE.y}];M.reroutes++});
+    alert('slbdown',0,84,64,'Portero SLB','NODO-02 no responde. Mando todo por NODO-01.','warn');
+    alert('m-node',0,272,152,'Mandy','Las transacciones en curso en NODO-02 hicieron rollback y van a reintentar.','info');
+  } else alert('slbup',0,84,64,'Portero SLB','NODO-02 volvió. Reparto otra vez entre los dos.','good');
+  document.getElementById('lblN2').classList.toggle('down',v);
+  document.getElementById('lblN2').textContent=v?'NODO-02 · FUERA DE SERVICIO':'NODO-02';
+}
+
+function update(dt){
+  simTime+=dt;
+  if(Math.random()<S.rate*dt)spawn();
+  for(let k=retries.length-1;k>=0;k--)if(retries[k].at<=simTime){spawn(retries[k].ent,retries[k].tx,true);retries.splice(k,1)}
+
+  let totalActive=0;
+  nodes.forEach(nd=>{
+    // fila
+    for(let i=nd.queue.length-1;i>=0;i--){
+      const c=nd.queue[i];c.waited+=dt;
+      if(c.waited>RESERVE){
+        nd.queue.splice(i,1);nd.waitFail++;leaveHome(c);
+        alert('wto'+nd.n,5,c.x,c.y-16,c.ent.name,'Me cansé de esperar conexión. Reintento más tarde.','warn',nd.name+': timeout de reserva de conexión.');
+        if(Math.random()<.5)retries.push({at:simTime+3,tx:c.tx,ent:c.ent});
+      }
+    }
+    nd.queue.forEach((c,i)=>{c.path=[qPos(nd,i)]});
+    // asignar
+    if(!(nd.n===1&&S.nodeDown)){
+      for(let i=0;i<S.N&&nd.queue.length;i++){
+        const s=nd.slots[i];
+        if(!s.busy){
+          const c=nd.queue.shift();
+          Object.assign(s,{busy:true,c,t:0,dur:service(),tx:c.tx});
+          c.state='toWindow';c.slot=i;c.path=[{x:slotX(nd,i),y:Y(nd,60)},{x:slotX(nd,i),y:Y(nd,50)}];
+        }
+      }
+    }
+    // cajeros
+    let active=0;
+    nd.slots.forEach((s,i)=>{
+      if(!s.busy)return;active++;s.anim+=dt;
+      if(s.c&&s.c.state==='toWindow'){s.c.path[s.c.path.length-1].x=slotX(nd,i);return}
+      s.t+=dt;
+      if(s.c&&s.c.state==='serving'&&s.t>PATIENCE&&s.t<s.dur){
+        const c=s.c;leaveHome(c,[{x:slotX(nd,i),y:Y(nd,62)}]);s.c=null;
+        retries.push({at:simTime+2.5,tx:s.tx,ent:c.ent});
+        alert('pat'+nd.n,4,slotX(nd,i),Y(nd,36),c.ent.name,'¡Timeout! No me respondieron. Vuelvo a mandar la transacción.','warn','Timeout de la entidad con el cobro aún en curso: reintento del radicado #'+s.tx+'.');
+      }
+      if(s.t>=s.dur){
+        charge(s.tx,nd,i);
+        if(s.c){const c=s.c;c.state='exit';c.paper=true;c.path=[{x:slotX(nd,i),y:Y(nd,60)},{x:252,y:Y(nd,60)},{x:262,y:118}]}
+        s.busy=false;s.c=null;
+      }
+    });
+    nd.high=Math.max(nd.high,active);totalActive+=active;
+    // alerta de capacidad
+    nd.waitStreak=nd.queue.length>0?nd.waitStreak+dt:0;
+    if(nd.waitStreak>3){
+      const bi=Math.max(0,nd.slots.findIndex((s,i)=>s.busy&&i<S.N));
+      alert('more'+nd.n,9,slotX(nd,bi),Y(nd,16),nd.name,'¡Necesito más cajeros! Hay '+nd.queue.length+' en la fila.','warn',nd.name+': WaitingForConnectionCurrentCount > 0 por más de 3 s.');
+    }
+  });
+
+  // consumidor JMS
+  worker.anim+=dt;
+  if(S.down){if(worker.busy){msgs.unshift(worker.msg);worker.busy=false;worker.msg=null}}
+  else{
+    if(!worker.busy&&msgs.length){worker.msg=msgs.shift();worker.busy=true;worker.t=0}
+    if(worker.busy){worker.t+=dt;if(worker.t>=.3){
+      const m=worker.msg;worker.busy=false;worker.msg=null;
+      if(Math.random()<.035){m.fails++;
+        if(m.fails>=3){M.dlq++;alert('dlq',3,272,152,'Mandy','El radicado #'+m.tx+' falló 3 veces. Quedó en la bandeja de errores para revisión.','bad')}
+        else msgs.unshift(m)}
+    }}
+  }
+
+  // movimiento
+  for(let k=clients.length-1;k>=0;k--){
+    const c=clients[k],g=c.path[0];
+    if(g){
+      const dx=g.x-c.x,dy=g.y-c.y,d=Math.hypot(dx,dy),step=SPEED*dt*(c.state==='leave'?1.3:1);
+      if(d<=step){c.x=g.x;c.y=g.y;if(c.state!=='queue')c.path.shift()}
+      else{c.x+=dx/d*step;c.y+=dy/d*step;c.walk+=dt}
+    }
+    if(c.path.length===0){
+      if(c.state==='toGate')route(c);
+      else if(c.state==='toNode'){
+        if(c.node.n===1&&S.nodeDown){c.state='toGate';c.path=[{x:GATE.x,y:GATE.y}];M.reroutes++}
+        else{c.state='queue';c.waited=0;c.node.queue.push(c)}
+      }
+      else if(c.state==='toWindow')c.state='serving';
+      else if(c.state==='leave'||c.state==='exit')clients.splice(k,1);
+    }
+  }
+
+  // avisos de Mandy
+  if(msgs.length>14)alert('jms',10,272,152,'Mandy','¡El archivador se está represando! '+msgs.length+' papeles esperando.','warn','MessagesCurrentCount alto: el consumidor no da abasto o está caído.');
+  if(S.slow)alert('slow',12,272,152,'Mandy','La BD está lenta: los cajeros no se liberan y las entidades empiezan a hacer timeout.','bad');
+  const idle=S.N>=8&&nodes.every(n=>n.queue.length===0)&&totalActive<=2;
+  if(idle)alert('less',16,272,152,'Mandy','Nos sobran cajeros: casi no hay movimiento. Son conexiones abiertas sin uso en la BD.','info');
+  botUpdate(dt);
+}
+
+/* ---------- burbujas y bitácora ---------- */
+const bubblesEl=document.getElementById('bubbles'),logEl=document.getElementById('log');
+function alert(key,cool,x,y,who,text,kind,logText){
+  if(cool&&lastAlert[key]!==undefined&&simTime-lastAlert[key]<cool)return;
+  lastAlert[key]=simTime;
+  if(!key.startsWith('bot'))botTrigger(key);
+  markers.push({x:Math.max(5,Math.min(W-5,x)),y:Math.max(10,y),until:simTime+3.5,kind});
+  addLog(text,kind,who,logText);
+}
+let markers=[];
+function addLog(text,kind,who,detail){
+  const li=document.createElement('li');li.className=kind||'info';
+  const t=document.createElement('time');const s=Math.floor(simTime);
+  t.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  const p=document.createElement('span');
+  if(who){const w=document.createElement('span');w.className='who';w.textContent=who;p.append(w)}
+  p.append(document.createTextNode(text));
+  if(detail){const d=document.createElement('span');d.className='det';d.textContent=detail;p.append(d)}
+  li.append(t,p);logEl.prepend(li);
+  while(logEl.children.length>7)logEl.lastChild.remove();
+}
+function drawMarkers(){
+  markers=markers.filter(m=>m.until>simTime);
+  const col={bad:'#e8605a',warn:'#f0a63a',good:'#7fc77a',info:'#56b8ad'};
+  markers.forEach(m=>{if(Math.floor(simTime*4)%4===3)return;
+    const x=Math.round(m.x),y=Math.round(m.y),c=col[m.kind]||col.info;
+    R(x-4,y-11,9,8,'#1d1424');R(x-3,y-10,7,6,'#efe6d8');R(x,y-9,1,3,c);R(x,y-5,1,1,c);R(x-1,y-3,3,1,'#1d1424');R(x,y-2,1,1,'#1d1424')});
+}
+
+/* ---------- dibujo ---------- */
+function R(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),w,h)}
+function person(x,y,o){
+  x=Math.round(x);y=Math.round(y);
+  const f=o.walk?Math.floor(o.walk*8)%2:0;
+  R(x-2,y-3,2,3,'#2c2436');R(x+1,y-3,2,3,'#2c2436');R(f?x-2:x+1,y-1,2,1,'#120d18');
+  R(x-3,y-8,6,5,o.shirt);
+  const arm=o.typing?Math.floor(o.typing*6)%2:0;
+  R(x-4,y-7-arm,1,3,o.skin);R(x+3,y-7-(o.typing?1-arm:0),1,3,o.skin);
+  R(x-3,y-12,6,4,o.skin);R(x-3,y-14,6,2,o.hair);R(x-3,y-13,1,2,o.hair);
+  R(x-2,y-11,1,1,'#1a1220');R(x+1,y-11,1,1,'#1a1220');
+  if(o.cap){R(x-4,y-15,8,2,o.cap);R(x-3,y-16,6,1,o.cap)}
+  if(o.angry){R(x,y-20,1,3,'#e8605a');R(x,y-16,1,1,'#e8605a')}
+  if(o.retry){R(x-1,y-18,3,3,'#e6b04a');R(x,y-17,1,1,'#18121f')}
+  if(o.paper){R(x+3,y-8,3,4,'#efe6d8');R(x+4,y-7,1,1,'#b3a5bd')}
+  if(o.tag)R(x+1,y-7,1,1,'#e6b04a');
+}
+function mandy(x,y,t){
+  const cream='#efe2c8',pt='#5a3a26',pt2='#8a6448';
+  const s=Math.round(Math.sin(t*2.2)*1.5);
+  R(x-9,y,18,3,'#c9973a');                       // placa de gerente
+  R(x+5,y-3,2,2,pt);R(x+7,y-5+s,2,2,pt2);R(x+8,y-7+s,2,2,pt);R(x+9,y-9+s,2,2,pt2); // cola atigrada
+  R(x-5,y-7,10,7,cream);R(x-6,y-5,1,4,cream);R(x+5,y-5,1,4,cream); // cuerpo de pelo largo
+  R(x-3,y-1,2,1,pt);R(x+1,y-1,2,1,pt);            // patas
+  R(x-4,y-13,8,6,cream);R(x-5,y-11,1,3,cream);R(x+4,y-11,1,3,cream); // cabeza con mejillas peludas
+  R(x-4,y-15,2,2,pt);R(x+2,y-15,2,2,pt);           // orejas
+  R(x-3,y-11,6,3,pt);R(x-1,y-9,2,1,pt2);           // máscara siamesa
+  const blink=Math.floor(t*10)%40===0;
+  R(x-2,y-10,1,1,blink?pt:'#6fb6e8');R(x+1,y-10,1,1,blink?pt:'#6fb6e8');
+  R(x-4,y-12,1,1,pt2);R(x+3,y-12,1,1,pt2);         // rayitas atigradas
+}
+function arrow(x,y,dir,c){ // dir 1 = hacia la derecha
+  R(x,y,8,1,c);
+  if(dir>0){R(x+6,y-1,1,3,c);R(x+5,y-2,1,5,c)}else{R(x+1,y-1,1,3,c);R(x+2,y-2,1,5,c)}
+}
+function draw(){
+  // fondo
+  for(let y=0;y<H;y+=12)for(let x=0;x<100;x+=12)R(x,y,12,12,((x+y)/12)%2?'#1f1828':'#231b2d');
+  // entidades
+  ENT.forEach(e=>{
+    const y=e.y0;
+    R(4,y+9,50,15,'#3b2c44');R(2,y+5,54,4,e.color);R(6,y+11,8,6,'#5a4a62');R(20,y+11,8,6,'#5a4a62');
+    R(44,y+14,8,10,'#18121f');R(51,y+11,2,2,'#7fc77a');
+    R(58,y+20,38,1,'#43364f');
+    arrow(64,y+20,e.mode==='server'?1:-1,e.color);
+  });
+  // cerca y portero
+  R(96,0,2,H,'#5a4a62');R(96,82,2,16,'#18121f');R(94,80,6,2,'#c9973a');R(94,96,6,2,'#c9973a');
+  person(84,86,{shirt:'#2f2439',hair:'#151515',skin:'#d9a273',cap:'#c9973a'});
+  // salas de nodos
+  nodes.forEach(nd=>{
+    const o=nd.off;
+    for(let y=o;y<o+86;y+=12)for(let x=100;x<252;x+=12)R(x,y,12,Math.min(12,o+86-y),((x+y)/12)%2?'#2a2030':'#30253a');
+    R(100,o,152,16,'#3b2c44');R(100,o+14,152,2,'#c9973a');
+    const L=layoutCount(nd),w=142/L;
+    for(let i=0;i<=L;i++)R(Math.round(104+w*i),o+16,1,14,'#6d5a7a');
+    for(let i=0;i<L;i++){
+      const x=slotX(nd,i),s=nd.slots[i];
+      if(i>=S.N&&!s.busy){R(x-3,o+20,6,3,'#5a4a62');continue}
+      person(x,o+36,{shirt:'#3f9e95',hair:'#2b1d14',skin:'#d9a273',typing:s.busy&&s.c&&s.c.state==='serving'?s.anim:0,tag:true});
+      if(s.busy&&!s.c)R(x+4,o+22,2,2,'#e6b04a');
+    }
+    R(100,o+30,152,3,'#d6a648');R(100,o+33,152,9,'#6b3f2a');R(100,o+40,152,2,'#4a2a1c');
+    // cable del pool a la BD
+    ctx.strokeStyle=S.slow&&Math.floor(simTime*3)%2?'#f0a63a':'#56b8ad';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+    ctx.beginPath();ctx.moveTo(252,o+24.5);ctx.lineTo(266,o+24.5);ctx.lineTo(276,24.5);ctx.stroke();ctx.setLineDash([]);
+  });
+  R(100,86,152,4,'#18121f');
+  // zona derecha
+  for(let y=44;y<H;y+=12)for(let x=252;x<W;x+=12)R(x,y,12,12,((x+y)/12)%2?'#1f1828':'#231b2d');
+  R(252,0,68,44,'#2a2030');
+  const blink=S.slow&&Math.floor(simTime*3)%2;
+  R(278,10,28,28,'#5d6b8a');R(278,7,28,4,blink?'#f0a63a':'#9aa8cc');R(278,19,28,1,'#46516b');R(278,28,28,1,'#46516b');R(278,37,28,2,'#46516b');
+  // archivador
+  R(262,100,24,40,'#7d8a96');R(262,113,24,1,'#5c6773');R(262,126,24,1,'#5c6773');
+  [106,119,132].forEach(y=>R(272,y,4,1,'#c9973a'));
+  const n=Math.min(msgs.length,44);
+  for(let k=0;k<n;k++)R(264+(k%2),99-k,20,1,k%2?'#efe6d8':'#d8ccb8');
+  // consumidor
+  const dn=S.down;
+  person(298,146,{shirt:dn?'#5a5560':'#e6b04a',hair:'#151515',skin:dn?'#8a8090':'#f1c8a0',paper:worker.busy,walk:worker.busy?worker.anim:0});
+  if(dn){const z=Math.floor(worker.anim*2)%3;R(302+z,129-z*2,2,1,'#b3a5bd')}
+  // DLQ
+  R(290,153,26,5,'#8c2f2b');R(290,152,26,1,'#e8605a');
+  for(let k=0;k<Math.min(M.dlq,5);k++)R(293,151-k,20,1,'#efe6d8');
+  // Mandy
+  mandy(272,170,simTime);
+  drawBot();
+  drawMarkers();
+  // clientes
+  clients.slice().sort((a,b)=>a.y-b.y).forEach(c=>{
+    const still=c.state==='queue'&&c.path[0]&&c.x===c.path[0].x&&c.y===c.path[0].y;
+    person(c.x,c.y,{shirt:c.shirt,hair:c.hair,skin:c.skin,walk:still?0:c.walk,angry:c.angry,retry:c.retry,paper:c.paper});
+  });
+  // nodo caído
+  if(S.nodeDown){ctx.fillStyle='rgba(12,8,16,.62)';ctx.fillRect(100,88,152,92);
+    for(let i=0;i<9;i++){R(166+i,124+i,2,2,'#e8605a');R(174-i,124+i,2,2,'#e8605a')}}
+  // selección
+  ctx.strokeStyle='#e6b04a';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+  ZONES.filter(z=>z.k===selected).forEach(z=>ctx.strokeRect(z.x+.5,z.y+.5,z.w-1,z.h-1));
+  ctx.setLineDash([]);
+}
+
+/* ---------- guía ---------- */
+const CONCEPTS={
+  intro:{chip:'Mapa',title:'La central de pagos completa',dl:[
+    ['Recorrido','Cada personaje es una transacción. Sale de su entidad, pasa por el portero SLB, entra a un nodo, hace fila, un cajero la aplica en la BD y deja un papel radicado en el archivador JMS para el back office.'],
+    ['Cómo leerla','Edificios = entidades conectadas por socket. Portero de gorra dorada = balanceador SLB. Salas = NODO-01 y NODO-02. Cajeros = pool JDBC de cada nodo. Cable punteado = conexiones a la BD. Archivador = cola JMS persistente. Mandy = el monitoreo.'],
+    ['Prueba esto','Activa “Cae NODO-02” y mira cómo el portero manda todo a NODO-01 y cómo se forma la fila.']]},
+  entidad:{chip:'Entidades',title:'Entidades (bancos y redes)',dl:[
+    ['Analogía','Cada edificio es una entidad que manda transacciones: redes internacionales, bancos, cajeros, pasarelas, datáfonos. El color de la camiseta dice de dónde viene cada transacción.'],
+    ['Técnico','Se conectan por sockets TCP de larga duración y hablan ISO 8583. En modo <b>server</b> nosotros escuchamos en un puerto y la entidad se conecta (flecha hacia adentro). En modo <b>client</b> nosotros nos conectamos a ella (flecha hacia afuera).'],
+    ['No confundir','Ese socket no es una conexión del pool JDBC. El socket lleva mensajes entre empresas; el pool JDBC va del servidor de aplicaciones a la base de datos. Son dos tramos distintos del mismo viaje.']]},
+  slb:{chip:'Portero SLB',title:'Balanceador SLB (el portero)',dl:[
+    ['Analogía','Recibe a todos en la entrada y decide por cuál sala entra cada uno. Si una sala se cierra, manda a todos a la otra.'],
+    ['Técnico','En un archivo de ruteo de este tipo, cada regla une un destino (la entidad: modo, dirección y puerto) con varios orígenes, normalmente uno por nodo. También indica el formato del encabezado del mensaje y un plugin por red que entiende su variante de ISO 8583.'],
+    ['Cómo leer una regla','“Los mensajes de esta entidad pueden entrar por NODO-01 o por NODO-02.” Por eso cada regla trae dos puertos de origen.']]},
+  nodos:{chip:'Nodos',title:'Nodos (las dos salas)',dl:[
+    ['Analogía','Dos salas iguales, cada una con sus propios cajeros. Trabajan al mismo tiempo y se cubren entre sí.'],
+    ['Técnico','Dos servidores en clúster activo-activo. Un Data Source desplegado en el clúster crea un pool en cada servidor, así que Maximum Capacity es por nodo, no total.'],
+    ['Pruébalo','“Cae NODO-02”: lo que estaba en curso hace rollback y reintenta por NODO-01. Con idempotencia, nadie paga doble.']]},
+  pool:{chip:'Pool JDBC',title:'Pool de conexiones (los cajeros)',dl:[
+    ['Analogía','Los cajeros ya están sentados y listos. Atienden, quedan libres y llaman al siguiente. No se contrata un cajero por cliente.'],
+    ['En WebLogic','El Data Source mantiene conexiones físicas abiertas a la BD. La aplicación reserva una, la usa y la devuelve sin cerrarla. Se dimensiona con Initial, Minimum y Maximum Capacity.'],
+    ['Métrica','<code>ActiveConnectionsCurrentCount</code>, <code>ActiveConnectionsHighCount</code>, <code>CurrCapacity</code>']]},
+  fila:{chip:'Fila',title:'Espera por conexión (la fila)',dl:[
+    ['Analogía','Si todos los cajeros están ocupados, la transacción espera. Si espera demasiado, se devuelve a su entidad.'],
+    ['En WebLogic','Sin conexiones libres, el hilo espera hasta el Connection Reserve Timeout (10 s por defecto) y luego recibe un error de recurso no disponible.'],
+    ['Métrica','<code>WaitingForConnectionCurrentCount</code>, <code>WaitingForConnectionFailureTotal</code>']]},
+  bd:{chip:'BD',title:'Base de datos (la bóveda)',dl:[
+    ['Analogía','La bóveda compartida por las dos salas. Si se pone lenta, todos los cajeros se demoran aunque no llegue más gente.'],
+    ['En WebLogic','Una BD lenta hace que las conexiones tarden en volver al pool. El síntoma aparece en WebLogic, pero la causa está en la base de datos.'],
+    ['Pruébalo','“BD lenta” con la idempotencia apagada: las entidades hacen timeout, reintentan y aparecen cobros dobles.']]},
+  jms:{chip:'Cola JMS',title:'Cola JMS persistente (el archivador)',dl:[
+    ['Analogía','Cada cobro aplicado deja un papel radicado. Si se va la luz, los papeles siguen ahí.'],
+    ['En WebLogic','Los mensajes persistentes se guardan en un Persistent Store (File Store o JDBC Store) asociado al JMS Server y sobreviven a un reinicio.'],
+    ['Métrica','<code>MessagesCurrentCount</code>, <code>MessagesPendingCount</code>, <code>MessagesReceivedCount</code>']]},
+  mdb:{chip:'Consumidor',title:'Consumidor MDB (el empleado de amarillo)',dl:[
+    ['Analogía','Saca un papel, lo procesa y sigue. Si se desmaya con un papel en la mano, el papel vuelve al archivador.'],
+    ['En WebLogic','Un Message-Driven Bean consume la cola. Con transacciones XA, sacar el mensaje y escribir en la BD se confirman juntos (two-phase commit) o se revierten juntos.'],
+    ['Pruébalo','Apaga el consumidor, deja que se llene el archivador y vuelve a encenderlo.']]},
+  dlq:{chip:'DLQ',title:'Cola de error (la bandeja roja)',dl:[
+    ['Analogía','Un papel que falla una y otra vez no puede bloquear el archivador. Se aparta para revisión.'],
+    ['En WebLogic','Al superar el Redelivery Limit, el mensaje pasa al Error Destination de la cola.'],
+    ['Métrica','<code>MessagesCurrentCount</code> de la cola de error']]},
+  idem:{chip:'Idempotencia',title:'Idempotencia (el número de radicado)',dl:[
+    ['Analogía','Cada transacción trae un radicado único. Si el mismo radicado llega dos veces, el cajero ve que ya lo aplicó y no cobra de nuevo.'],
+    ['En la aplicación','No es un parámetro de WebLogic. Lo implementa la aplicación guardando el identificador de la transacción (en ISO 8583, campos como STAN y RRN) y devolviendo la respuesta anterior si se repite.'],
+    ['Pruébalo','Los personajes con cuadrito dorado en la cabeza son reintentos. Con idempotencia apagada, cuenta los cobros dobles.']]},
+  claude:{chip:'Claude',title:'Claude, ingeniero de infraestructura',dl:[
+    ['Analogía','Cuando Mandy o un personaje da una alerta, el ingeniero del casco amarillo va al sitio del problema, saca la llave y propone el paso del runbook.'],
+    ['Técnico','Representa el diagnóstico y la acción del equipo de soporte. Solo propone: los cambios en producción los aprueba una persona y pasan por control de cambios.'],
+    ['Pruébalo','Activa cualquier situación y síguelo por la central.']]},
+  mandy:{chip:'Mandy',title:'Mandy, la gerente',dl:[
+    ['Analogía','Supervisa toda la central desde su placa dorada y avisa de los problemas antes de que las entidades se quejen.'],
+    ['Técnico','Representa el monitoreo: reglas que leen las métricas y disparan alertas. En la fase 5 sus avisos saldrán de métricas reales de WebLogic.'],
+    ['Sus avisos','Archivador represado, BD lenta, mensajes en la DLQ, cajeros de sobra y rollback por caída de un nodo.']]}
+};
+const chipsEl=document.getElementById('chips'),defEl=document.getElementById('defBody');
+Object.entries(CONCEPTS).forEach(([k,c])=>{const b=document.createElement('button');b.className='chip';b.id='chip-'+k;b.textContent=c.chip;b.onclick=()=>select(k);chipsEl.appendChild(b)});
+function select(k){
+  selected=k;const c=CONCEPTS[k];
+  chipsEl.querySelectorAll('.chip').forEach(b=>b.setAttribute('aria-pressed',b.id==='chip-'+k));
+  defEl.innerHTML='<h3>'+c.title+'</h3><dl>'+c.dl.map(([t,d])=>'<div><dt>'+t+'</dt><dd>'+d+'</dd></div>').join('')+'</dl>';
+}
+cv.addEventListener('click',e=>{
+  const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*H;
+  const z=ZONES.find(z=>x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.h);select(z?z.k:'intro');
+});
+
+/* ---------- escenarios ---------- */
+const SCEN=[
+  {id:'normal',name:'Día normal',sub:'Todo fluye',set:{rate:2,N:4,slow:false,nodeDown:false,down:false,idem:true},
+   story:'Las entidades mandan transacciones a buen ritmo y el portero las reparte entre los dos nodos. Casi nunca hay fila y el archivador se vacía tan rápido como se llena.'},
+  {id:'pico',name:'Quincena',sub:'Hora pico',set:{rate:7,N:4,slow:false,nodeDown:false,down:false,idem:true},
+   story:'Llega mucha más gente de la que 4 cajeros por nodo pueden atender. Crece la fila en los dos nodos, algunas transacciones se devuelven por timeout y los cajeros piden refuerzos. Sube Maximum Capacity y mira cómo se recupera.'},
+  {id:'nodo',name:'Cae NODO-02',sub:'Failover del SLB',set:{rate:3,N:4,slow:false,nodeDown:true,down:false,idem:true},
+   story:'NODO-02 deja de responder. Por eso cada regla del ruteo tiene un origen por nodo: el portero manda todo a NODO-01. Lo que estaba en curso en NODO-02 hace rollback y reintenta. NODO-01 ahora carga con todo y se forma fila.'},
+  {id:'lenta',name:'BD lenta',sub:'Sin idempotencia',set:{rate:2.5,N:4,slow:true,nodeDown:false,down:false,idem:false},
+   story:'La bóveda responde lento. Los cajeros se demoran, las entidades hacen timeout y reenvían la misma transacción. Sin idempotencia aparecen cobros dobles. Actívala y compara.'},
+  {id:'caido',name:'Consumidor caído',sub:'Archivador represado',set:{rate:2.5,N:4,slow:false,nodeDown:false,down:true,idem:true},
+   story:'El back office está fuera de servicio. Los cobros se siguen aplicando, pero los papeles se acumulan en el archivador sin perderse. Cuando lo enciendas, procesará todo lo represado.'}
+];
+const scenEl=document.getElementById('scen'),storyEl=document.getElementById('story');
+SCEN.forEach(s=>{const b=document.createElement('button');b.className='sc';b.id='sc-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
+function applyScen(s){
+  const nd=s.set.nodeDown;const {nodeDown,...rest}=s.set;Object.assign(S,rest);
+  if(nd!==S.nodeDown)setNodeDown(nd);
+  syncControls();storyEl.textContent=s.story;
+  scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='sc-'+s.id));
+  addLog('Escenario: '+s.name,'info');
+  if(s.id==='caido')alert('downmsg',0,298,126,'Back office','Estoy fuera de servicio, pero los papeles quedan guardados en disco.','warn');
+}
+
+/* ---------- controles ---------- */
+const $=id=>document.getElementById(id);
+function syncControls(){
+  $('rate').value=S.rate;$('rateV').textContent=S.rate;$('pool').value=S.N;$('poolV').textContent=S.N;
+  $('tSlow').setAttribute('aria-pressed',S.slow);$('tNode').setAttribute('aria-pressed',S.nodeDown);
+  $('tDown').setAttribute('aria-pressed',S.down);$('tIdem').setAttribute('aria-pressed',S.idem);$('tPause').setAttribute('aria-pressed',S.paused);
+}
+$('rate').oninput=e=>{S.rate=+e.target.value;$('rateV').textContent=S.rate};
+$('pool').oninput=e=>{S.N=+e.target.value;$('poolV').textContent=S.N};
+$('tSlow').onclick=()=>{S.slow=!S.slow;syncControls();addLog(S.slow?'La BD se puso lenta.':'La BD volvió a la normalidad.',S.slow?'bad':'good')};
+$('tNode').onclick=()=>{setNodeDown(!S.nodeDown);syncControls()};
+$('tDown').onclick=()=>{S.down=!S.down;syncControls();
+  if(S.down)alert('downmsg',0,298,126,'Back office','Estoy fuera de servicio, pero los papeles quedan guardados en disco.','warn');
+  else alert('upmsg',0,298,126,'Back office',msgs.length?'¡Volví! Proceso los '+msgs.length+' papeles represados.':'¡Volví!','good')};
+$('tIdem').onclick=()=>{S.idem=!S.idem;syncControls();addLog(S.idem?'Idempotencia activada: los radicados repetidos no se cobran.':'Idempotencia apagada: un reintento puede cobrar doble.',S.idem?'good':'warn')};
+$('tPause').onclick=()=>{S.paused=!S.paused;syncControls()};
+$('tLbl').onclick=()=>{const st=$('stage'),off=st.classList.toggle('nolabels');$('tLbl').setAttribute('aria-pressed',!off)};
+
+/* ---------- métricas ---------- */
+const mxEl=$('mx');
+const nodeRows=nd=>[
+  ['JDBCDataSourceRuntime · '+nd.name],
+  ['ActiveConnectionsCurrentCount',()=>nd.slots.filter(s=>s.busy).length,v=>nd.n===1&&S.nodeDown?'bad':v>=S.N?'warn':'ok'],
+  ['WaitingForConnectionCurrentCount',()=>nd.queue.length,v=>v>8?'bad':v>0?'warn':'ok'],
+  ['WaitingForConnectionFailureTotal',()=>nd.waitFail,v=>v?'warn':'ok'],
+  ['ActiveConnectionsHighCount',()=>nd.high,()=>'ok']
+];
+const MX=[
+  ...nodeRows(nodes[0]),...nodeRows(nodes[1]),
+  ['JMSDestinationRuntime · cola de pagos'],
+  ['MessagesCurrentCount',()=>msgs.length,v=>v>24?'bad':v>14?'warn':'ok'],
+  ['MessagesPendingCount',()=>worker.busy?1:0,()=>'ok'],
+  ['MessagesReceivedCount',()=>M.received,()=>'ok'],
+  ['Cola de error (DLQ)'],
+  ['MessagesCurrentCount',()=>M.dlq,v=>v?'bad':'ok'],
+  ['Aplicación'],
+  ['Cobros dobles',()=>M.dups,v=>v?'bad':'ok'],
+  ['Reintentos bloqueados por idempotencia',()=>M.idem,()=>'ok'],
+  ['Transacciones redirigidas por el SLB',()=>M.reroutes,v=>v?'warn':'ok']
+];
+const cells=[];
+MX.forEach(r=>{
+  if(r.length===1){const d=document.createElement('div');d.className='grp';d.textContent=r[0];mxEl.appendChild(d);return}
+  const d=document.createElement('div');d.className='m';
+  const n=document.createElement(r[0].includes(' ')?'span':'code');n.textContent=r[0];
+  const b=document.createElement('b');d.append(n,b);mxEl.appendChild(d);cells.push([b,r]);
+});
+function renderMx(){cells.forEach(([b,r])=>{const v=r[1]();b.textContent=v;b.className=r[2](v)})}
+
+/* ---------- arranque ---------- */
+select('intro');applyScen(SCEN[0]);
+for(let i=0;i<5;i++)spawn();
+setTimeout(()=>alert('hola',0,272,152,'Mandy','Bienvenido a la central. Yo superviso; toca cualquier cosa y te explico.','good'),900);
+let last=performance.now(),mxT=0;
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(window.__view!=='b'){
+    if(!S.paused){update(dt);mxT+=dt;if(mxT>.25){renderMx();mxT=0}}
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+renderMx();requestAnimationFrame(frame);
+})();
+</script>
+
+<script>
+(function(){
+const W=320,H=180;
+const cv=document.getElementById('sceneB'),ctx=cv.getContext('2d');
+cv.width=W;cv.height=H;ctx.imageSmoothingEnabled=false;
+const $=id=>document.getElementById(id);
+
+/* ---------- pestañas ---------- */
+function show(v){
+  window.__view=v;$('viewA').hidden=v==='b';$('viewB').hidden=v!=='b';
+  $('tabA').setAttribute('aria-selected',v!=='b');$('tabB').setAttribute('aria-selected',v==='b');
+  try{localStorage.setItem('sw-view',v)}catch(e){}
+}
+$('tabA').onclick=()=>show('a');$('tabB').onclick=()=>show('b');
+
+/* ---------- el edificio (corte lateral) ----------
+   Edificio = Managed Server ms1. Piso 1: conmutador (Data Source). Lobby: puerta, empleados (hilos),
+   recepción de Mandy y directorio (JNDI). Sótano: correspondencia (cola JMS), archivo en disco (File Store)
+   y back office (MDB). Ascensor a la derecha. La bóveda (BD) está en el edificio de enfrente. */
+const EX=233;                         // eje del ascensor
+const Y_P1=56,Y_LOBBY=114,Y_SOT=170;  // pisos (pies de los personajes)
+const DOOR={x:40,y:Y_LOBBY},DIR_STOP={x:210,y:Y_LOBBY},Q_IN={x:214,y:Y_SOT};
+const plugX=i=>54+i*7;
+const waitX=j=>Math.min(214,146+j*6);
+const floorOf=y=>y<62?1:y<118?0:-1;
+
+/* ---------- estado ---------- */
+const S={rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:false,arch:false,paused:false};
+const RESERVE=6,STUCK=8,HOG=4,INACTIVE=8,SPEED=150,LIFT=260;
+let t=0,pending=[],queue=[],waiters=[],reqSeq=0,msgSeq=0,lastAlert={},selected='intro',dsStreak=0,wmStreak=0;
+let litDs=0,litJms=0,markers=[];
+const M={waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0};
+let dbLevel=55;
+const conns=Array.from({length:12},(_,i)=>({i,state:'free',owner:null,leakT:0}));
+const threads=Array.from({length:12},(_,i)=>{const h={x:52+(i%6)*14,y:i<6?100:114};return{kind:'t',i,x:h.x,y:h.y,home:h,state:'idle',path:[],walk:0,conn:null,t:0,dur:0,waitT:0,reqT:0,stuck:false,failT:0,carry:false}});
+const mdbs=[0,1].map(i=>{const h={x:58+i*14,y:Y_SOT};return{kind:'m',i,x:h.x,y:h.y,home:h,state:'idle',path:[],walk:0,conn:null,t:0,dur:0,waitT:0,msg:null,carry:false}});
+
+/* ---------- bitácora y marcadores ---------- */
+const logEl=$('logB');
+function say(key,cool,x,y,who,text,kind,logText){
+  if(cool&&lastAlert[key]!==undefined&&t-lastAlert[key]<cool)return;
+  lastAlert[key]=t;
+  if(!key.startsWith('bot'))botTrigger(key);
+  markers.push({x:Math.max(5,Math.min(W-5,x)),y:Math.max(10,y),until:t+3.5,kind});
+  const li=document.createElement('li');li.className=kind||'info';
+  const tm=document.createElement('time');const s=Math.floor(t);tm.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  const p=document.createElement('span');const w=document.createElement('span');w.className='who';w.textContent=who;
+  p.append(w,document.createTextNode(text));
+  if(logText){const d=document.createElement('span');d.className='det';d.textContent=logText;p.append(d)}
+  li.append(tm,p);logEl.prepend(li);
+  while(logEl.children.length>7)logEl.lastChild.remove();
+}
+
+/* ---------- Claude, ingeniero de mantenimiento ---------- */
+const bot={x:192,y:Y_LOBBY,home:{x:192,y:Y_LOBBY},state:'idle',t:0,walk:0,path:[],msg:''};
+function liftPath(from,to){return floorOf(from.y)===floorOf(to.y)?[{x:to.x,y:to.y}]:[{x:EX,y:from.y},{x:EX,y:to.y},{x:to.x,y:to.y}]}
+function botGo(x,y,msg){if(bot.state!=='idle')return;bot.state='going';bot.msg=msg;bot.path=liftPath(bot,{x,y})}
+function botTrigger(key){
+  if(key==='ds')return botGo(180,Y_P1,'Conmutador sin líneas libres. Runbook: revisar consultas lentas o subir Maximum Capacity del Data Source.');
+  if(key==='leak')return botGo(100,Y_P1,'Líneas abandonadas. Activo Inactive Connection Timeout y busco el getConnection() sin close().');
+  if(key.startsWith('stuck'))return botGo(130,Y_LOBBY,'Empleado atascado. Tomo un thread dump para ver dónde está bloqueado.');
+  if(key==='wm')return botGo(30,Y_LOBBY,'No hay empleados libres. Reviso el Work Manager y qué está demorando cada petición.');
+  if(key==='q')return botGo(150,Y_SOT,'La correspondencia se acumula. Verifico que el back office esté trabajando.');
+  if(key==='errq')return botGo(64,Y_SOT,'Carta en la bandeja de errores. La reviso antes de reprocesarla.');
+  if(key==='ts')return botGo(244,Y_LOBBY,'Tablespace lleno. Runbook con el DBA: agregar un datafile o activar autoextend, y revisar la purga de datos viejos.');
+  if(key==='tswarn')return botGo(244,Y_LOBBY,'Tablespace casi lleno. Aviso al DBA antes de que fallen las escrituras.');
+  if(key==='arch')return botGo(244,Y_P1,'Archivelogs llenos. Runbook con el DBA: respaldar y depurar archivelogs con RMAN o ampliar el área de recuperación.');
+  if(key==='slow')return botGo(EX,Y_P1,'La bóveda responde lento. Con el DBA: sesiones bloqueadas y consultas largas.');
+}
+function botUpdate(dt){
+  bot.t+=dt;
+  if(bot.state==='going'||bot.state==='back'){
+    const g=bot.path[0];
+    if(g){const dx=g.x-bot.x,dy=g.y-bot.y,d=Math.hypot(dx,dy),st=(Math.abs(dx)<.5?LIFT:SPEED*.7)*dt;
+      if(d<=st){bot.x=g.x;bot.y=g.y;bot.path.shift()}else{bot.x+=dx/d*st;bot.y+=dy/d*st;bot.walk+=dt}}
+    if(!bot.path.length){
+      if(bot.state==='going'){bot.state='working';bot.t=0;say('bot'+t,0,bot.x,bot.y-24,'Claude · mantenimiento',bot.msg,'info')}
+      else bot.state='idle';
+    }
+  } else if(bot.state==='working'&&bot.t>3.4){bot.state='back';bot.path=liftPath(bot,bot.home)}
+}
+
+/* ---------- simulación ---------- */
+function freeConn(){for(let i=0;i<S.N;i++)if(conns[i].state==='free')return conns[i];return null}
+function grant(a,c){c.state='busy';c.owner=a;a.conn=c;a.state='toPlug';a.path=[{x:plugX(c.i),y:Y_P1}]}
+function arriveWait(a){
+  const c=waiters.length?null:freeConn();
+  if(c)grant(a,c);else{a.state='waitConn';a.waitT=0;waiters.push(a)}
+}
+function goHome(a){
+  a.state='toHome';a.carry=false;
+  a.path=floorOf(a.y)===floorOf(a.home.y)?[{x:a.home.x,y:a.home.y}]:[{x:EX,y:a.y},{x:EX,y:a.home.y},{x:a.home.x,y:a.home.y}];
+}
+function release(a){
+  const c=a.conn;a.conn=null;
+  if(a.kind==='t'&&S.leak&&Math.random()<.35){
+    c.state='leaked';c.owner=null;c.leakT=0;
+    say('leak',6,plugX(c.i),16,'Línea #'+(c.i+1),'Un empleado me usó y se fue sin colgar (sin close()). Quedé ocupada sin dueño.','bad');
+  } else {c.state='free';c.owner=null}
+}
+
+function grow(){dbLevel=Math.min(100,dbLevel+(S.fast?1.5:.04))}
+function dbFull(){say('ts',6,287,70,'Bóveda Oracle','ORA-01653: no puedo extender la tabla en el tablespace. ¡Estoy llena!','bad','Las escrituras fallan: la petición devuelve error y las cartas vuelven a la cola.')}
+function update(dt){
+  t+=dt;M.storeBlink=Math.max(0,M.storeBlink-dt);litDs=Math.max(0,litDs-dt);litJms=Math.max(0,litJms-dt);
+  if(Math.random()<S.rate*dt&&pending.length<60)pending.push(++reqSeq);
+
+  conns.forEach(c=>{if(c.state==='leaked'){c.leakT+=dt;if(c.leakT>INACTIVE){c.state='free';M.leaked++;
+    say('reclaim',3,96,16,'Conmutador jdbc/PagosDS','Recuperé la línea #'+(c.i+1)+' abandonada (Inactive Connection Timeout).','good')}}});
+
+  while(waiters.length){const c=freeConn();if(!c)break;grant(waiters.shift(),c)}
+  for(let k=waiters.length-1;k>=0;k--){
+    const a=waiters[k];a.waitT+=dt;
+    if(a.waitT>RESERVE){
+      waiters.splice(k,1);
+      if(a.kind==='t'){M.waitFail++;a.failT=1.5;goHome(a);
+        say('wfail',4,a.x,a.y-22,'Empleado H'+(a.i+1),'Esperé más que Connection Reserve Timeout. La petición falla.','bad')}
+      else{queue.unshift(a.msg);a.msg=null;goHome(a)}
+    }
+  }
+  waiters.forEach((a,j)=>{a.path=[{x:waitX(j),y:Y_P1}]});
+
+  threads.forEach(a=>{
+    if(a.state!=='idle')a.reqT+=dt;
+    a.failT=Math.max(0,a.failT-dt);
+    if(a.state==='idle'&&a.i<S.T&&pending.length){pending.shift();a.state='toDoor';a.reqT=0;a.stuck=false;a.path=[{x:DOOR.x,y:DOOR.y}]}
+    if(a.state==='using'){if(!S.arch)a.t+=dt;if(a.t>=a.dur){release(a);if(dbLevel>=100){M.dbErr++;a.failT=1.5;goHome(a);dbFull()}else{grow();a.state='toDirJms';a.path=[{x:EX,y:Y_P1},{x:EX,y:Y_LOBBY},{x:DIR_STOP.x,y:DIR_STOP.y}]}}}
+    if(a.state!=='idle'&&!a.stuck&&a.reqT>STUCK){a.stuck=true;
+      say('stuck'+a.i,0,a.x,a.y-22,'Empleado H'+(a.i+1),'Llevo demasiado con la misma petición. Me marcan STUCK.','bad','StuckThreadCount subió: un hilo superó Stuck Thread Max Time.')}
+  });
+  mdbs.forEach(a=>{
+    if(a.state==='idle'&&!S.mdbDown&&queue.length){a.msg=queue.shift();a.carry=true;a.state='toWait';a.path=[{x:EX,y:Y_SOT},{x:EX,y:Y_P1},{x:218,y:Y_P1}]}
+    if(a.state==='using'){if(!S.arch)a.t+=dt;if(a.t>=a.dur){
+      release(a);
+      const full=dbLevel>=100;if(full){M.dbErr++;dbFull()}else grow();
+      if(full||Math.random()<.04){a.msg.fails++;
+        if(a.msg.fails>=3){M.errorQ++;say('errq',3,164,90,'Mandy','La carta #'+a.msg.id+' falló 3 veces. Pasó a la bandeja de errores.','bad')}
+        else queue.unshift(a.msg)}
+      a.msg=null;goHome(a)}}
+  });
+
+  [...threads,...mdbs].forEach(a=>{
+    const g=a.path[0];
+    if(g){const dx=g.x-a.x,dy=g.y-a.y,d=Math.hypot(dx,dy),st=(Math.abs(dx)<.5&&Math.abs(dy)>.5?LIFT:SPEED)*dt*(a.kind==='m'?1.7:1);
+      if(d<=st){a.x=g.x;a.y=g.y;if(a.state!=='waitConn')a.path.shift()}else{a.x+=dx/d*st;a.y+=dy/d*st;a.walk+=dt}}
+    if(a.path.length)return;
+    switch(a.state){
+      case'toDoor':a.carry=true;a.state='toDirDs';a.path=[{x:DIR_STOP.x,y:DIR_STOP.y}];break;
+      case'toDirDs':litDs=.8;a.state='toWait';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_P1},{x:218,y:Y_P1}];break;
+      case'toWait':arriveWait(a);break;
+      case'toPlug':a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9):(S.slow?2:.5))*(.7+Math.random()*.6);break;
+      case'toDirJms':litJms=.8;a.state='toQueue';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_SOT},{x:Q_IN.x,y:Q_IN.y}];break;
+      case'toQueue':queue.push({id:++msgSeq,fails:0});M.received++;M.storeBlink=.35;goHome(a);break;
+      case'toHome':a.state='idle';a.carry=false;break;
+    }
+  });
+
+  const wq=waiters.length,tWait=waiters.filter(a=>a.kind==='t').length,mWait=wq-tWait;
+  dsStreak=tWait>0?dsStreak+dt:0;
+  if(dsStreak>3)say('ds',9,96,16,'Conmutador jdbc/PagosDS','No tengo líneas libres: '+wq+' en fila esperando.','warn','WaitingForConnectionCurrentCount > 0 por más de 3 s.');
+  if(mWait>0&&tWait>0)say('mdbwait',10,waitX(waiters.findIndex(a=>a.kind==='m')),Y_P1-22,'Back office','Los empleados tienen todas las líneas. Yo también necesito una para escribir.','warn');
+  const busyT=threads.filter(a=>a.i<S.T&&a.state!=='idle').length;
+  wmStreak=(busyT>=S.T&&pending.length>S.T)?wmStreak+dt:0;
+  if(wmStreak>3)say('wm',10,20,90,'Work Manager','Todos los empleados están ocupados. Hay '+pending.length+' peticiones esperando en la calle.','warn','QueueLength creciendo: no hay hilos libres.');
+  if(queue.length>12)say('q',10,164,90,'Mandy','Hay '+queue.length+' cartas en correspondencia. Siguen seguras en el archivo en disco.','warn');
+  if(S.slow)say('slow',12,164,90,'Mandy','La bóveda está lenta: las líneas quedan ocupadas y los empleados se atascan.','bad');
+  if(S.arch)say('arch',10,287,40,'Bóveda Oracle','ORA-00257: error del archivador. Me congelé y no acepto cambios hasta que liberen espacio de archivelogs.','bad','Las líneas quedan ocupadas esperando: el pool se agota y los hilos pasan a STUCK.');
+  if(dbLevel>=85&&dbLevel<100)say('tswarn',15,287,70,'Bóveda Oracle','Tablespace al '+Math.round(dbLevel)+'%. Si llego a 100, las escrituras van a fallar.','warn');
+  botUpdate(dt);
+}
+
+/* ---------- dibujo ---------- */
+function R(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),w,h)}
+const FONT={'0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001','5':'111100111001111','6':'111100111101111','7':'111001001001001','8':'111101111101111','9':'111101111001111','H':'101101111101101','M':'101111111101101','P':'111101111100100','S':'111100111001111','>':'100010001010100'};
+function ptext(s,x,y,c){let cx=Math.round(x);y=Math.round(y);for(const ch of s){const g=FONT[ch];if(g)for(let k=0;k<15;k++)if(g[k]==='1')R(cx+k%3,y+Math.floor(k/3),1,1,c);cx+=4}}
+function person(x,y,o){
+  x=Math.round(x);y=Math.round(y);const f=o.walk?Math.floor(o.walk*8)%2:0;
+  R(x-2,y-3,2,3,'#2c2436');R(x+1,y-3,2,3,'#2c2436');R(f?x-2:x+1,y-1,2,1,'#120d18');
+  R(x-3,y-8,6,5,o.shirt);R(x-4,y-7,1,3,o.skin);R(x+3,y-7,1,3,o.skin);
+  R(x-3,y-12,6,4,o.skin);R(x-3,y-14,6,2,o.hair);R(x-3,y-13,1,2,o.hair);
+  R(x-2,y-11,1,1,'#1a1220');R(x+1,y-11,1,1,'#1a1220');
+  if(o.carry){R(x+3,y-8,4,3,'#efe6d8');R(x+4,y-7,2,1,'#b3a5bd')}
+  if(o.fail){for(let k=0;k<4;k++){R(x+4+k,y-14+k,1,1,'#e8605a');R(x+7-k,y-14+k,1,1,'#e8605a')}}
+  if(o.tag){const w=o.tag.length*4-1;R(x-Math.ceil(w/2)-1,y-21,w+2,7,'#1d1424');ptext(o.tag,x-Math.ceil(w/2),y-20,o.tagCol)}
+}
+function mandy(x,y){
+  const cream='#efe2c8',pt='#5a3a26',pt2='#8a6448',s=Math.round(Math.sin(t*2.2)*1.5);
+  R(x+5,y-3,2,2,pt);R(x+7,y-5+s,2,2,pt2);R(x+8,y-7+s,2,2,pt);R(x+9,y-9+s,2,2,pt2);
+  R(x-5,y-7,10,7,cream);R(x-6,y-5,1,4,cream);R(x+5,y-5,1,4,cream);
+  R(x-3,y-1,2,1,pt);R(x+1,y-1,2,1,pt);
+  R(x-4,y-13,8,6,cream);R(x-5,y-11,1,3,cream);R(x+4,y-11,1,3,cream);
+  R(x-4,y-15,2,2,pt);R(x+2,y-15,2,2,pt);R(x-3,y-11,6,3,pt);R(x-1,y-9,2,1,pt2);
+  const bl=Math.floor(t*10)%40===0;R(x-2,y-10,1,1,bl?pt:'#6fb6e8');R(x+1,y-10,1,1,bl?pt:'#6fb6e8');
+}
+function drawBot(){
+  const x=Math.round(bot.x),y=Math.round(bot.y),moving=bot.state==='going'||bot.state==='back';
+  const f=moving?Math.floor(bot.walk*8)%2:0,bob=!moving&&Math.floor(bot.t*2)%2?1:0;
+  R(x-3,y-3,2,3,'#3a3040');R(x+1,y-3,2,3,'#3a3040');R(f?x-3:x+1,y-1,2,1,'#120d18');
+  R(x-4,y-10,8,7,'#d97757');R(x-4,y-7,8,1,'#f2e2a0');R(x-5,y-9,1,4,'#d97757');R(x+4,y-9,1,4,'#d97757');
+  R(x-3,y-16+bob,6,6,'#2b2431');
+  const bl=Math.floor(bot.t*3)%9===0;R(x-2,y-14+bob,1,bl?1:2,'#7fe0d0');R(x+1,y-14+bob,1,bl?1:2,'#7fe0d0');
+  R(x-5,y-17+bob,10,1,'#d9a520');R(x-4,y-19+bob,8,2,'#f2c230');R(x-1,y-20+bob,2,1,'#f2c230');
+  if(bot.state==='working'){const w=Math.floor(bot.t*8)%2;R(x+5,y-11+w,1,4,'#b3a5bd');R(x+5,y-12+w,3,1,'#b3a5bd');
+    if(w){R(x+8,y-13,1,1,'#ffe08a');R(x+7,y-15,1,1,'#ffe08a');R(x+9,y-11,1,1,'#ffe08a')}}
+  else if(!moving){R(x-8,y-9,3,4,'#efe6d8');R(x-7,y-8,1,1,'#8a7d92')}
+}
+function drawMarkers(){
+  markers=markers.filter(m=>m.until>t);
+  const col={bad:'#e8605a',warn:'#f0a63a',good:'#7fc77a',info:'#56b8ad'};
+  markers.forEach(m=>{if(Math.floor(t*4)%4===3)return;
+    const x=Math.round(m.x),y=Math.round(m.y),c=col[m.kind]||col.info;
+    R(x-4,y-11,9,8,'#1d1424');R(x-3,y-10,7,6,'#efe6d8');R(x,y-9,1,3,c);R(x,y-5,1,1,c);R(x-1,y-3,3,1,'#1d1424');R(x,y-2,1,1,'#1d1424')});
+}
+function tiles(x0,y0,x1,y1,a,b){for(let y=y0;y<y1;y+=12)for(let x=x0;x<x1;x+=12)R(x,y,Math.min(12,x1-x),Math.min(12,y1-y),((x+y)/12)%2?a:b)}
+function draw(){
+  // cielo y calle
+  R(0,0,W,H,'#161120');
+  for(let k=0;k<14;k++)R((k*53+11)%W,(k*29+5)%60,1,1,'#3b2c44');
+  R(0,176,W,4,'#3b2c44');R(0,118,30,58,'#1d1625');
+  // peticiones esperando en la calle
+  const pn=Math.min(pending.length,16);
+  for(let k=0;k<pn;k++){R(8,112-k*3,12,2,'#efe6d8');R(8,114-k*3,12,1,'#8a7d92')}
+  R(22,104,6,1,'#e6b04a');R(26,103,1,3,'#e6b04a');
+
+  // edificio de enfrente: la bóveda (BD)
+  R(258,10,58,166,'#2a2f3a');R(258,8,58,3,'#5d6b8a');
+  const bl=(S.slow||S.arch)&&Math.floor(t*3)%2;
+  R(274,18,30,34,'#5d6b8a');R(274,15,30,4,bl?(S.arch?'#e8605a':'#f0a63a'):'#9aa8cc');R(274,28,30,1,'#46516b');R(274,39,30,1,'#46516b');R(274,50,30,2,'#46516b');
+  if(S.arch){R(284,32,10,7,'#e8605a');R(285,28,1,4,'#e8605a');R(292,28,1,4,'#e8605a');R(285,27,8,1,'#e8605a');R(288,34,2,3,'#1d1424')}
+  const slots=40,filled=Math.round(dbLevel/100*slots),fc=dbLevel>=100?(Math.floor(t*4)%2?'#e8605a':'#8c2f2b'):dbLevel>=85?'#f0a63a':'#9aa8cc';
+  for(let k=0;k<slots;k++){const x=264+(k%4)*12,y=164-Math.floor(k/4)*10;R(x-1,y+7,12,1,'#46516b');if(k<filled){R(x,y,10,7,fc);R(x+4,y+2,2,1,'#2a2f3a')}}
+  R(264,58,46,4,'#1f232c');R(264,58,Math.max(1,Math.round(46*dbLevel/100)),4,dbLevel>=100?'#e8605a':dbLevel>=85?'#f0a63a':'#7fc77a');
+
+  // edificio ms1
+  R(30,6,222,170,'#1f1827');
+  R(28,4,226,3,'#c9973a');R(28,4,2,172,'#c9973a');R(252,4,2,172,'#c9973a');
+  tiles(30,8,222,62,'#2a2132','#2e2437');      // piso 1
+  tiles(30,64,222,118,'#30253a','#352a40');    // lobby
+  tiles(30,120,222,172,'#241c2c','#28202f');   // sótano
+  R(30,62,222,2,'#5a4a62');R(30,118,222,2,'#5a4a62');R(30,172,222,4,'#5a4a62');
+  // puerta del lobby
+  R(28,82,4,34,'#120d18');R(28,80,4,2,'#c9973a');
+
+  // PISO 1: conmutador (Data Source)
+  R(48,16,94,30,'#3a4252');R(48,14,94,2,'#c9973a');
+  let hi=S.N;conns.forEach((c,i)=>{if(c.state!=='free')hi=Math.max(hi,i+1)});
+  for(let i=0;i<12;i++){
+    const c=conns[i],x=plugX(i);
+    let col=i<hi?'#5d6b8a':'#2c3240';
+    if(c.state==='busy')col='#56b8ad';
+    if(c.state==='leaked')col=Math.floor(t*4)%2?'#e8605a':'#8c2f2b';
+    R(x,19,2,22,col);R(x-1,41,4,3,i<hi?'#c9973a':'#3a4252');
+  }
+  // líneas que salen del edificio hacia la bóveda
+  R(142,26,132,2,'#6d5a7a');
+  conns.forEach((c,i)=>{if(c.state!=='busy'||!c.owner||c.owner.state!=='using')return;
+    const sp=S.arch?0:S.slow?.35:1.6,p=((t*sp)+i*.37)%1,d=(p<.5?p*2:(1-p)*2)*128;
+    R(143+d,26,2,2,'#e6b04a')});
+
+  // LOBBY: directorio (JNDI) y recepción
+  R(194,68,26,30,'#1d1424');R(194,66,26,2,'#c9973a');
+  R(196,71,22,11,litDs>0?'#e6b04a':'#3b2c44');R(198,73,1,6,'#56b8ad');R(200,73,1,6,'#56b8ad');R(202,73,1,6,'#56b8ad');ptext('>',205,74,litDs>0?'#1d1424':'#b3a5bd');ptext('P1',209,74,litDs>0?'#1d1424':'#efe6d8');
+  R(196,84,22,11,litJms>0?'#e6b04a':'#3b2c44');R(198,87,6,4,'#efe6d8');R(199,88,4,1,'#b3a5bd');ptext('>',205,87,litJms>0?'#1d1424':'#b3a5bd');ptext('S',209,87,litJms>0?'#1d1424':'#efe6d8');
+  R(148,100,34,4,'#6b3f2a');R(148,99,34,1,'#d6a648');R(150,104,2,10,'#4a2a1c');R(178,104,2,10,'#4a2a1c');
+  mandy(165,99);
+  threads.forEach(a=>{const h=a.home;if(a.i>=S.T)R(h.x-3,h.y-4,6,4,'#43364f');else R(h.x-4,h.y,8,1,'#4a3c56')});
+
+  // SÓTANO: correspondencia (cola JMS), archivo (File Store), back office (MDB), errores
+  R(88,140,126,16,'#2f2439');R(88,140,126,1,'#c9973a');
+  const qn=Math.min(queue.length,23);
+  for(let k=0;k<qn;k++){const x=92+k*5;R(x,143,4,10,'#efe6d8');R(x,143,4,1,'#b3a5bd')}
+  R(88,158,126,6,M.storeBlink>0?'#e6b04a':'#5a4a62');R(90,160,8,2,'#2c2436');R(150,160,10,1,'#2c2436');
+  R(46,136,34,6,'#8c2f2b');R(46,135,34,1,'#e8605a');
+  for(let k=0;k<Math.min(M.errorQ,4);k++)R(49,134-k,28,1,'#efe6d8');
+
+  // ascensor
+  R(EX-11,8,22,164,'#120d18');R(EX-11,8,1,164,'#43364f');R(EX+10,8,1,164,'#43364f');
+  [Y_P1,Y_LOBBY,Y_SOT].forEach(y=>{R(EX-11,y+1,22,2,'#5a4a62')});
+  const inLift=a=>Math.abs(a.x-EX)<1&&a.path.length&&Math.abs(a.path[0].x-EX)<1&&Math.abs(a.path[0].y-a.y)>1;
+
+  // personajes
+  [...threads.filter(a=>!(a.i>=S.T&&a.state==='idle')),...mdbs].sort((a,b)=>a.y-b.y).forEach(a=>{
+    if(inLift(a)){R(a.x-6,a.y-23,12,24,'#5d4a68');R(a.x-6,a.y-23,12,1,'#c9973a')}
+    const moving=a.path.length&&!(a.state==='waitConn'&&a.x===a.path[0].x&&a.y===a.path[0].y);
+    person(a.x,a.y,{shirt:a.kind==='t'?(a.stuck?'#c8553d':'#3f9e95'):(S.mdbDown?'#5a5560':'#e6b04a'),hair:a.kind==='t'?'#2b1d14':'#151515',skin:a.kind==='m'&&S.mdbDown?'#8a8090':'#d9a273',walk:moving?a.walk:0,carry:a.carry,fail:a.failT>0,
+      tag:(a.kind==='t'?'H':'M')+(a.i+1),tagCol:a.kind==='m'?'#fac775':(a.stuck&&a.state!=='idle'?'#e8605a':'#9fe1cb')});
+  });
+  if(S.mdbDown)mdbs.forEach(a=>{const z=Math.floor(t*2)%3;R(a.x+6+z,a.y-24-z*2,2,1,'#b3a5bd')});
+  if(Math.abs(bot.x-EX)<1&&bot.path.length&&Math.abs(bot.path[0].y-bot.y)>1){R(bot.x-7,bot.y-23,14,24,'#5d4a68')}
+  drawBot();
+  drawMarkers();
+  ctx.strokeStyle='#e6b04a';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+  ZONES.filter(z=>z.k===selected).forEach(z=>ctx.strokeRect(z.x+.5,z.y+.5,z.w-1,z.h-1));ctx.setLineDash([]);
+}
+
+/* ---------- letreros y zonas ---------- */
+const labelsEl=$('labelsB');
+function lbl(x,y,txt){const s=document.createElement('span');s.className='lbl';s.style.left=(x/W*100)+'%';s.style.top=(y/H*100)+'%';s.textContent=txt;labelsEl.appendChild(s);return s}
+const L={
+  srv:lbl(30,-1,'EDIFICIO = MANAGED SERVER ms1'),bd:lbl(258,-1,'BÓVEDA = BD ORACLE'),
+  ds:lbl(48,7,''),inb:lbl(0,76,''),hil:lbl(36,64,''),dir:lbl(176,64,'DIRECTORIO = JNDI'),
+  jms:lbl(88,121,''),ts:lbl(262,63,''),st:lbl(88,164,'ARCHIVO EN DISCO = FILE STORE'),mdb:lbl(36,163,''),lift:lbl(222,177,'ASCENSOR')
+};
+function renderLabels(){
+  const busyT=threads.filter(a=>a.i<S.T&&a.state!=='idle').length;
+  const used=conns.filter(c=>c.state!=='free').length,wq=waiters.length;
+  L.ds.textContent='PISO 1 · CONMUTADOR = DATA SOURCE jdbc/PagosDS · LÍNEAS EN USO '+used+' DE '+S.N+(wq?' · EN FILA '+wq:'');
+  L.ds.classList.toggle('down',wq>0);
+  L.inb.textContent='CALLE: '+pending.length;L.inb.classList.toggle('down',pending.length>S.T);
+  L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS';
+  L.jms.textContent='SÓTANO · CORRESPONDENCIA = COLA JMS · '+queue.length+' CARTAS';
+  L.mdb.textContent='BACK OFFICE = MDB';
+  L.ts.textContent=S.arch?'CONGELADA':(dbLevel>=100?'LLENA 100%':'DATOS '+Math.round(dbLevel)+'%');
+  L.ts.classList.toggle('down',S.arch||dbLevel>=100);
+}
+const ZONES=[
+  {k:'mandy',x:146,y:82,w:38,h:22},{k:'claude',x:184,y:94,w:16,h:22},
+  {k:'jndi',x:192,y:64,w:30,h:36},{k:'errorq',x:44,y:132,w:38,h:12},{k:'mdb',x:44,y:146,w:40,h:28},
+  {k:'store',x:86,y:156,w:130,h:10},{k:'cola',x:86,y:122,w:136,h:34},
+  {k:'espera',x:142,y:34,w:80,h:26},{k:'pool',x:30,y:8,w:192,h:54},{k:'bd',x:256,y:6,w:62,h:170},
+  {k:'lift',x:EX-11,y:8,w:22,h:166},{k:'hilos',x:30,y:64,w:116,h:54},{k:'hilos',x:0,y:90,w:30,h:30}
+];
+
+/* ---------- guía ---------- */
+const CONCEPTS={
+  intro:{chip:'Recorrido',title:'El edificio ms1',dl:[
+    ['Cómo leerlo','El edificio es el Managed Server. Sigue a un empleado (hilo): recoge la petición en la puerta, mira el directorio, sube en el ascensor al conmutador, toma una línea hacia la bóveda, vuelve a mirar el directorio y baja al sótano a dejar la tarea pendiente.'],
+    ['Lo importante','La bóveda (BD) está en el edificio de enfrente: no vive en WebLogic. Los empleados y el back office comparten las mismas líneas del conmutador.'],
+    ['Pruébalo','Escenario “Pool corto”: 10 empleados para 3 líneas.']]},
+  hilos:{chip:'Hilos',title:'Empleados del lobby = hilos',dl:[
+    ['Analogía','Cada empleado atiende una petición de punta a punta. Si todos están ocupados, las peticiones esperan en la calle.'],
+    ['Técnico','WebLogic usa un self-tuning thread pool que ajusta su tamaño solo. Los Work Managers priorizan el trabajo y pueden limitarlo con un Max Threads Constraint, que es lo que simula el control “Hilos disponibles”.'],
+    ['Métrica','<code>ExecuteThreadTotalCount</code>, <code>ExecuteThreadIdleCount</code>, <code>QueueLength</code>, <code>PendingUserRequestCount</code>']]},
+  jndi:{chip:'JNDI',title:'Directorio del lobby = JNDI',dl:[
+    ['Analogía','Como el directorio de cualquier edificio: “jdbc/PagosDS → Piso 1”, “jms/PagosQueue → Sótano”. La fila se enciende cuando un empleado la consulta.'],
+    ['Técnico','WebLogic publica cada Data Source, Connection Factory y cola en su árbol JNDI con el nombre que configuraste. La aplicación hace lookup de ese nombre y no necesita saber la URL, el usuario ni la contraseña de la BD.'],
+    ['No confundir','JNDI no traduce nada. El traductor entre Java y Oracle es el driver JDBC (Oracle Thin), que vive dentro del Data Source.']]},
+  pool:{chip:'Data Source',title:'Conmutador del piso 1 = Data Source',dl:[
+    ['Analogía','Cada columna es una línea telefónica ya abierta hacia la bóveda de enfrente. El empleado toma una línea, habla con la bóveda y la cuelga para el siguiente.'],
+    ['Técnico','<code>ds.getConnection()</code> reserva una conexión libre del pool. <code>con.close()</code> no la cierra de verdad: la devuelve al pool.'],
+    ['Métrica','<code>ActiveConnectionsCurrentCount</code>, <code>NumAvailable</code>, <code>CurrCapacity</code>']]},
+  espera:{chip:'Espera',title:'Fila junto al conmutador',dl:[
+    ['Analogía','Si no hay líneas libres, se hace fila al lado del conmutador. Empleados y back office esperan en la misma fila, por orden de llegada.'],
+    ['Técnico','Se espera hasta Connection Reserve Timeout (10 s por defecto). Si se agota, la aplicación recibe una excepción y la petición falla (X roja).'],
+    ['Métrica','<code>WaitingForConnectionCurrentCount</code>, <code>WaitingForConnectionFailureTotal</code>']]},
+  fuga:{chip:'Fuga',title:'Líneas sin colgar (fuga)',dl:[
+    ['Analogía','Alguien usa una línea y se va sin colgar. El conmutador se queda con menos líneas útiles; se ven en rojo.'],
+    ['Técnico','El código no llamó <code>close()</code> (por ejemplo, no usó try-with-resources). Con Inactive Connection Timeout, WebLogic recupera la conexión tras ese tiempo sin actividad y la cuenta como fuga.'],
+    ['Métrica','<code>LeakedConnectionCount</code>']]},
+  stuck:{chip:'Stuck',title:'Empleados atascados',dl:[
+    ['Analogía','Un empleado lleva demasiado tiempo con la misma petición. Su placa se pone roja.'],
+    ['Técnico','Si un hilo trabaja en una sola petición más que Stuck Thread Max Time (600 s por defecto), WebLogic lo marca stuck. Antes de eso puede aparecer como hogging. Una BD lenta es una causa típica.'],
+    ['Métrica','<code>StuckThreadCount</code>, <code>HoggingThreadCount</code>']]},
+  bd:{chip:'BD',title:'La bóveda de enfrente = BD Oracle',dl:[
+    ['Analogía','Está en otro edificio porque no vive en WebLogic. Los puntos amarillos que cruzan la calle son consultas que van y vuelven. Los estantes son los datos guardados: se llenan con cada pago.'],
+    ['Tablespace lleno','Cuando el espacio de la tabla llega al 100 %, Oracle responde ORA-01653 y la escritura falla. La aplicación recibe una excepción, la petición devuelve error y los mensajes que procesa el MDB hacen rollback hasta caer en la cola de error.'],
+    ['Archivelogs llenos','Si se llena el espacio donde Oracle guarda sus archivelogs, la BD deja de aceptar cambios (ORA-00257) y las sesiones se quedan esperando. En WebLogic se ve como pool agotado e hilos stuck, aunque WebLogic no tenga la culpa.'],
+    ['Técnico','Si la BD responde lento, cada conexión queda ocupada más tiempo. El pool se agota aunque no llegue más tráfico: el síntoma está en WebLogic, la causa en la BD.']]},
+  lift:{chip:'Ascensor',title:'El ascensor',dl:[
+    ['Para qué está','Solo une los pisos para que se vea el recorrido. No representa ningún componente de WebLogic.']]},
+  cola:{chip:'Cola JMS',title:'Correspondencia del sótano = cola JMS',dl:[
+    ['Para qué sirve','Separa lo urgente de lo que puede esperar. El empleado registra el pago y responde ya; lo demás (notificar a otro sistema, conciliar, enviar un comprobante) lo deja como una carta en correspondencia y sigue atendiendo.'],
+    ['Analogía','Las cartas entran por la derecha (desde el ascensor) y salen por la izquierda hacia el back office.'],
+    ['Técnico','La cola vive en un JMS Server y se define en un JMS Module. En clúster suele ser una Uniform Distributed Queue, con un miembro por servidor.'],
+    ['Métrica','<code>MessagesCurrentCount</code>, <code>MessagesPendingCount</code>, <code>MessagesReceivedCount</code>']]},
+  store:{chip:'File Store',title:'Archivo en disco = File Store',dl:[
+    ['Analogía','La copia en disco de la correspondencia. Parpadea cada vez que llega una carta, porque se guarda antes de confirmar el envío.'],
+    ['Diferencia con la BD','La bóveda guarda los datos del negocio (el pago). El archivo guarda las cartas que todavía no se han procesado. Si el edificio se queda sin luz, siguen ahí.']]},
+  mdb:{chip:'MDB',title:'Back office del sótano = MDB',dl:[
+    ['Analogía','No ayudan a los empleados del lobby: trabajan aparte y a su ritmo. Toman una carta, suben al conmutador por una línea y la procesan en la bóveda.'],
+    ['Técnico','Un Message-Driven Bean recibe los mensajes de la cola. <code>max-beans-in-free-pool</code> limita cuántas instancias trabajan en paralelo (aquí 2). Usan el mismo Data Source que los hilos.']]},
+  errorq:{chip:'Error Q',title:'Bandeja de errores',dl:[
+    ['Analogía','Una carta que falla una y otra vez se aparta en la bandeja roja y deja de bloquear la correspondencia.'],
+    ['Técnico','Al superar el Redelivery Limit configurado en la cola, el mensaje pasa a su Error Destination, que debe estar en el mismo JMS Server.'],
+    ['Métrica','<code>MessagesCurrentCount</code> de la cola de error']]},
+  xa:{chip:'XA',title:'Transacciones XA',dl:[
+    ['Analogía','El back office saca la carta y escribe en la bóveda como un solo movimiento: o quedan las dos cosas o ninguna.'],
+    ['Técnico','Con un driver XA en el Data Source y una Connection Factory con XA habilitado, la cola y la BD participan en un two-phase commit. Si algo falla, el mensaje vuelve a la cola y se reintenta.']]},
+  claude:{chip:'Claude',title:'Claude, ingeniero de mantenimiento',dl:[
+    ['Analogía','Cuando suena una alerta, toma el ascensor hasta el piso del problema, saca la llave y propone el paso del runbook.'],
+    ['Técnico','Representa el diagnóstico del equipo de soporte. Solo propone; los cambios los aprueba una persona.']]},
+  mandy:{chip:'Mandy',title:'Mandy en recepción',dl:[
+    ['Analogía','Desde la recepción del lobby ve todo lo que entra y avisa cuando algo se sale de lo normal.'],
+    ['Técnico','Representa las reglas de monitoreo sobre las métricas. En la fase 5 leerá los valores reales por REST o Prometheus.']]}
+};
+const chipsEl=$('chipsB'),defEl=$('defBodyB');
+Object.entries(CONCEPTS).forEach(([k,c])=>{const b=document.createElement('button');b.className='chip';b.id='chipB-'+k;b.textContent=c.chip;b.onclick=()=>select(k);chipsEl.appendChild(b)});
+function select(k){selected=k;const c=CONCEPTS[k];
+  chipsEl.querySelectorAll('.chip').forEach(b=>b.setAttribute('aria-pressed',b.id==='chipB-'+k));
+  defEl.innerHTML='<h3>'+c.title+'</h3><dl>'+c.dl.map(([a,d])=>'<div><dt>'+a+'</dt><dd>'+d+'</dd></div>').join('')+'</dl>'}
+cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*W,y=(e.clientY-r.top)/r.height*H;
+  const z=ZONES.find(z=>x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.h);select(z?z.k:'intro')});
+
+/* ---------- configuración y monitoreo ---------- */
+const CFG={
+  pool:{chip:'Crear el pool',html:`
+<p class="path">Services › Data Sources › New › Generic Data Source</p>
+<ol>
+<li><b>Name</b> PagosDS · <b>JNDI Name</b> <code>jdbc/PagosDS</code> · <b>Database Type</b> Oracle.</li>
+<li><b>Driver</b>: Oracle Thin, o Thin XA si la conexión va a participar en transacciones XA junto con JMS.</li>
+<li><b>Connection Properties</b>: URL <code>jdbc:oracle:thin:@//db-host:1521/PAGOS</code>, usuario y contraseña. Luego <b>Test Configuration</b>.</li>
+<li><b>Targets</b>: el clúster o los Managed Servers. Cada servidor recibe su propio pool.</li>
+<li>Pestaña <b>Connection Pool</b>: Initial, Minimum y Maximum Capacity; Connection Reserve Timeout; Inactive Connection Timeout; Shrink Frequency; Test Connections On Reserve con Test Table Name <code>SQL ISVALID</code> para Oracle.</li>
+</ol>`},
+  jms:{chip:'Crear la cola',html:`
+<p>Una cola necesita una cadena de piezas, en este orden:</p>
+<ol>
+<li><b>Persistent Store</b>: File Store <code>PagosFileStore</code> (o JDBC Store), con target al Managed Server. Es el archivo en disco.</li>
+<li><b>JMS Server</b> <code>PagosJMSServer</code>: usa ese store y tiene target al mismo Managed Server. Sin target, no arranca.</li>
+<li><b>JMS Module</b> <code>PagosModule</code>: con target al clúster o al servidor.</li>
+<li><b>Subdeployment</b> dentro del módulo, apuntando al JMS Server.</li>
+<li><b>Connection Factory</b> <code>jms/PagosCF</code>, con XA habilitado si se combina con el Data Source XA.</li>
+<li><b>Queue</b> <code>jms/PagosQueue</code> en ese subdeployment. En Delivery Failure: Redelivery Limit y Error Destination <code>jms/PagosErrorQueue</code>, en el mismo JMS Server.</li>
+</ol>
+<p>En clúster, en lugar de una cola simple se usa una Uniform Distributed Queue.</p>`},
+  code:{chip:'En el código',html:`
+<p>Así usa la aplicación las dos piezas. Los nombres JNDI son los mismos del directorio del lobby:</p>
+<pre class="code"><span class="c">// Empleado (hilo): tomar y colgar una línea</span>
+DataSource ds = (DataSource) ctx.lookup("jdbc/PagosDS");
+try (Connection con = ds.getConnection()) {   <span class="c">// toma una línea</span>
+    <span class="c">// INSERT del pago con su radicado</span>
+}                                              <span class="c">// close(): la cuelga</span>
+
+<span class="c">// Dejar la carta en correspondencia</span>
+ConnectionFactory cf = (ConnectionFactory) ctx.lookup("jms/PagosCF");
+Queue q = (Queue) ctx.lookup("jms/PagosQueue");
+try (JMSContext jms = cf.createContext()) {
+    jms.createProducer()
+       .setDeliveryMode(DeliveryMode.PERSISTENT)
+       .send(q, mensaje);
+}
+
+<span class="c">// Back office</span>
+@MessageDriven(mappedName = "jms/PagosQueue")
+public class PagosMDB implements MessageListener {
+    public void onMessage(Message m) { <span class="c">/* usa jdbc/PagosDS */</span> }
+}</pre>
+<p>Si falta el <code>try</code> alrededor de <code>getConnection()</code> y no se llama <code>close()</code>, la línea queda sin colgar: eso es una fuga.</p>`},
+  mon:{chip:'Monitorear',html:`
+<p><b>Consola</b></p>
+<ol>
+<li>Pool: <span class="path">Services › Data Sources › PagosDS › Monitoring › Statistics</span>. Con “Customize this table” agregas columnas como Waiting For Connection Current Count.</li>
+<li>Cola: <span class="path">Services › Messaging › JMS Modules › PagosModule › PagosQueue › Monitoring</span>.</li>
+<li>Hilos: <span class="path">Environment › Servers › ms1 › Monitoring › Threads</span>.</li>
+</ol>
+<p><b>WLST</b> (con un usuario del rol Monitor)</p>
+<pre class="code">connect('monitor', '****', 't3://admin-host:7001')
+domainRuntime()
+cd('ServerRuntimes/ms1/JDBCServiceRuntime/ms1/JDBCDataSourceRuntimeMBeans/PagosDS')
+print get('ActiveConnectionsCurrentCount'), get('WaitingForConnectionCurrentCount')</pre>
+<p><b>REST</b> (WebLogic 12.2.1 o superior)</p>
+<pre class="code">curl -s -u monitor:**** -H "Accept: application/json" \\
+ http://admin-host:7001/management/weblogic/latest/domainRuntime/\\
+serverRuntimes/ms1/JDBCServiceRuntime/JDBCDataSourceRuntimeMBeans/PagosDS
+
+curl -s -u monitor:**** -H "Accept: application/json" \\
+ http://admin-host:7001/management/weblogic/latest/domainRuntime/\\
+serverRuntimes/ms1/JMSRuntime/JMSServers/PagosJMSServer/destinations</pre>
+<p>Estas dos llamadas son exactamente lo que leerá el monitor animado en la fase 5. Verifica las rutas contra tu versión. La alternativa empresarial es el WebLogic Monitoring Exporter con Prometheus.</p>`}
+};
+const cfgChips=$('cfgChips'),cfgBody=$('cfgBody');
+Object.entries(CFG).forEach(([k,c])=>{const b=document.createElement('button');b.className='chip';b.id='cfg-'+k;b.textContent=c.chip;b.onclick=()=>cfg(k);cfgChips.appendChild(b)});
+function cfg(k){cfgChips.querySelectorAll('.chip').forEach(b=>b.setAttribute('aria-pressed',b.id==='cfg-'+k));cfgBody.innerHTML=CFG[k].html}
+
+/* ---------- escenarios ---------- */
+const SCEN=[
+  {id:'normal',name:'Día normal',sub:'Todo fluye',set:{rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false},
+   story:'Sigue a un empleado: recoge la petición en la puerta, mira el directorio, sube al conmutador, toma una línea hacia la bóveda, la cuelga, vuelve a mirar el directorio y baja al sótano a dejar la carta. El back office la procesa después.'},
+  {id:'corto',name:'Pool corto',sub:'10 hilos, 3 conexiones',set:{rate:2,T:10,N:3,slow:false,leak:false,mdbDown:false},
+   story:'Sobran empleados pero faltan líneas. Se forma fila junto al conmutador y el back office tampoco consigue línea. El cuello de botella es el pool. Sube Maximum Capacity y mira cómo se deshace la fila.'},
+  {id:'fuga',name:'Fuga de conexiones',sub:'Falta un close()',set:{rate:1,T:6,N:5,slow:false,leak:true,mdbDown:false},
+   story:'Algunos empleados se van sin colgar. Las líneas rojas quedan ocupadas sin dueño y el conmutador útil se encoge, hasta que Inactive Connection Timeout las recupera.'},
+  {id:'lenta',name:'BD lenta',sub:'Hilos atascados',set:{rate:1,T:6,N:5,slow:true,leak:false,mdbDown:false},
+   story:'La bóveda tarda en responder. Las líneas siguen ocupadas, se forma fila en el conmutador, las peticiones se acumulan en la calle y algunos empleados pasan a STUCK.'},
+  {id:'mdb',name:'MDB detenido',sub:'La cola crece',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:true},
+   story:'Los empleados siguen dejando cartas, pero el back office no trabaja. La correspondencia crece y cada carta queda guardada en el archivo en disco. Al reactivarlo, se procesan en orden.'},
+  {id:'llena',name:'Bóveda llena',sub:'ORA-01653',level:94,set:{rate:.8,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:true},
+   story:'El tablespace está casi lleno y sigue creciendo. Al llegar al 100 %, cada escritura falla: los empleados reciben error (X roja) y las cartas del back office rebotan hasta caer en la bandeja de errores. WebLogic está sano; el problema está en la bóveda. Usa “Llamar al DBA”.'},
+  {id:'congelada',name:'BD congelada',sub:'Archivelogs llenos',set:{rate:.8,T:6,N:5,slow:false,leak:false,mdbDown:false,arch:true},
+   story:'Se llenó el espacio de archivelogs y la BD deja de aceptar cambios. No responde con error: se queda esperando. Las líneas quedan ocupadas, se forma fila, los empleados pasan a STUCK y las peticiones se acumulan en la calle. Todo parece colgado, pero la causa está en la bóveda. Usa “Llamar al DBA”.'}
+];
+const scenEl=$('scenB'),storyEl=$('storyB');
+SCEN.forEach(s=>{const b=document.createElement('button');b.className='sc';b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
+function applyScen(s){Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;
+  scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='scB-'+s.id))}
+
+/* ---------- controles ---------- */
+function sync(){
+  $('bRate').value=S.rate;$('bRateV').textContent=S.rate;$('bT').value=S.T;$('bTV').textContent=S.T;$('bN').value=S.N;$('bNV').textContent=S.N;
+  $('bSlow').setAttribute('aria-pressed',S.slow);$('bLeak').setAttribute('aria-pressed',S.leak);$('bMdb').setAttribute('aria-pressed',S.mdbDown);$('bFill').setAttribute('aria-pressed',S.fast);$('bArch').setAttribute('aria-pressed',S.arch);$('bPause').setAttribute('aria-pressed',S.paused);
+}
+$('bRate').oninput=e=>{S.rate=+e.target.value;$('bRateV').textContent=S.rate};
+$('bT').oninput=e=>{S.T=+e.target.value;$('bTV').textContent=S.T};
+$('bN').oninput=e=>{S.N=+e.target.value;$('bNV').textContent=S.N};
+$('bSlow').onclick=()=>{S.slow=!S.slow;sync()};
+$('bLeak').onclick=()=>{S.leak=!S.leak;sync()};
+$('bFill').onclick=()=>{S.fast=!S.fast;sync()};
+$('bArch').onclick=()=>{S.arch=!S.arch;sync()};
+$('bDba').onclick=()=>{let did=false;
+  if(S.arch){S.arch=false;did=true;say('dba1',0,287,40,'DBA','Respaldé y depuré los archivelogs. La bóveda vuelve a aceptar cambios.','good')}
+  if(dbLevel>=80){dbLevel=55;S.fast=false;did=true;say('dba2',0,287,70,'DBA','Agregué un datafile al tablespace. Hay espacio otra vez.','good')}
+  if(!did)say('dba0',0,287,70,'DBA','Revisé la bóveda: todo está en orden.','info');sync()};
+$('bMdb').onclick=()=>{S.mdbDown=!S.mdbDown;sync();
+  say('mdbt',0,66,150,'Back office',S.mdbDown?'Detenido. Las cartas se quedan en correspondencia, seguras en el archivo.':(queue.length?'De vuelta. Proceso las '+queue.length+' cartas en orden.':'De vuelta.'),S.mdbDown?'warn':'good')};
+$('bPause').onclick=()=>{S.paused=!S.paused;sync()};
+$('bLbl').onclick=()=>{const off=$('stageB').classList.toggle('nolabels');$('bLbl').setAttribute('aria-pressed',!off)};
+
+/* ---------- métricas ---------- */
+const MX=[
+  ['ThreadPoolRuntime'],
+  ['ExecuteThreadTotalCount',()=>S.T,()=>'ok'],
+  ['ExecuteThreadIdleCount',()=>threads.filter(a=>a.i<S.T&&a.state==='idle').length,v=>v===0?'warn':'ok'],
+  ['QueueLength',()=>pending.length,v=>v>S.T*2?'bad':v>S.T?'warn':'ok'],
+  ['HoggingThreadCount',()=>threads.filter(a=>a.state!=='idle'&&a.reqT>HOG&&!a.stuck).length,v=>v?'warn':'ok'],
+  ['StuckThreadCount',()=>threads.filter(a=>a.stuck&&a.state!=='idle').length,v=>v?'bad':'ok'],
+  ['JDBCDataSourceRuntime · PagosDS'],
+  ['CurrCapacity',()=>S.N,()=>'ok'],
+  ['NumAvailable',()=>conns.filter((c,i)=>i<S.N&&c.state==='free').length,v=>v===0?'warn':'ok'],
+  ['ActiveConnectionsCurrentCount',()=>conns.filter(c=>c.state!=='free').length,v=>v>=S.N?'warn':'ok'],
+  ['WaitingForConnectionCurrentCount',()=>waiters.length,v=>v>4?'bad':v?'warn':'ok'],
+  ['WaitingForConnectionFailureTotal',()=>M.waitFail,v=>v?'warn':'ok'],
+  ['LeakedConnectionCount',()=>M.leaked,v=>v?'bad':'ok'],
+  ['JMSDestinationRuntime · PagosQueue'],
+  ['MessagesCurrentCount',()=>queue.length,v=>v>12?'warn':'ok'],
+  ['MessagesPendingCount',()=>mdbs.filter(a=>a.msg).length,()=>'ok'],
+  ['MessagesReceivedCount',()=>M.received,()=>'ok'],
+  ['JMSDestinationRuntime · PagosErrorQueue'],
+  ['MessagesCurrentCount',()=>M.errorQ,v=>v?'bad':'ok'],
+  ['Oracle (lo ve el DBA, no WebLogic)'],
+  ['Tablespace usado %',()=>Math.round(dbLevel),v=>v>=100?'bad':v>=85?'warn':'ok'],
+  ['Errores ORA-01653',()=>M.dbErr,v=>v?'bad':'ok'],
+  ['Archivelogs llenos',()=>S.arch?'SÍ':'NO',v=>v==='SÍ'?'bad':'ok']
+];
+const mxEl=$('mxB'),cells=[];
+MX.forEach(r=>{
+  if(r.length===1){const d=document.createElement('div');d.className='grp';d.textContent=r[0];mxEl.appendChild(d);return}
+  const d=document.createElement('div');d.className='m';const n=document.createElement('code');n.textContent=r[0];
+  const b=document.createElement('b');d.append(n,b);mxEl.appendChild(d);cells.push([b,r]);
+});
+function renderMx(){cells.forEach(([b,r])=>{const v=r[1]();b.textContent=v;b.className=r[2](v)});renderLabels()}
+
+/* ---------- arranque ---------- */
+select('intro');cfg('pool');applyScen(SCEN[0]);renderMx();
+let v='a';try{v=localStorage.getItem('sw-view')||'a'}catch(e){}
+if(location.hash==='#weblogic')v='b';
+show(v);
+let last=performance.now(),mxT=0,greeted=false;
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(window.__view==='b'){
+    if(!greeted){greeted=true;setTimeout(()=>say('hola',0,165,84,'Mandy','Bienvenido al edificio ms1. Sigue a un empleado desde la puerta hasta el sótano.','good'),700)}
+    if(!S.paused){update(dt);mxT+=dt;if(mxT>.25){renderMx();mxT=0}}
+    draw();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
