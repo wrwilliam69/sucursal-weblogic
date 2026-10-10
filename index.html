@@ -210,6 +210,7 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
   <div class="legend" aria-label="Leyenda de la escena">
     <b>Qué es cada cosa</b>
     <span><i class="sw" style="background:#c9973a;width:14px;height:10px"></i>Edificio dorado = el Managed Server ms1</span>
+    <span><i class="sw p" style="background:#8a6ad0;border-top-color:#5a3a1e"></i>Cliente morado en la calle = una petición que llega</span>
     <span><i class="sw p" style="background:#3f9e95"></i>Empleado verde (H1, H2…) = un hilo</span>
     <span><i class="sw p" style="background:#e6b04a;border-top-color:#151515"></i>Empleado amarillo (M1, M2) = un MDB del back office</span>
     <span><i class="sw" style="background:#5d6b8a"></i>Columna del conmutador = una conexión a la BD, libre</span>
@@ -850,7 +851,7 @@ const floorOf=y=>y<62?1:y<118?0:-1;
 const S={rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:false,arch:false,paused:false};
 const RESERVE=6,STUCK=8,HOG=4,INACTIVE=8,SPEED=150,LIFT=260;
 let t=0,pending=[],queue=[],waiters=[],reqSeq=0,msgSeq=0,lastAlert={},selected='intro',dsStreak=0,wmStreak=0;
-let litDs=0,litJms=0,markers=[];
+let litDs=0,litJms=0,markers=[],leaving=[];
 const M={waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0};
 let dbLevel=55;
 const conns=Array.from({length:12},(_,i)=>({i,state:'free',owner:null,leakT:0}));
@@ -1001,7 +1002,9 @@ function grow(){dbLevel=Math.min(100,dbLevel+(S.fast?1.5:.04))}
 function dbFull(){say('ts',6,287,70,'Bóveda Oracle','ORA-01653: no puedo extender la tabla en el tablespace. ¡Estoy llena!','bad','Las escrituras fallan: la petición devuelve error y las cartas vuelven a la cola.')}
 function update(dt){
   t+=dt;M.storeBlink=Math.max(0,M.storeBlink-dt);litDs=Math.max(0,litDs-dt);litJms=Math.max(0,litJms-dt);
-  if(Math.random()<S.rate*dt&&pending.length<60)pending.push(++reqSeq);
+  if(Math.random()<S.rate*dt&&pending.length<60)pending.push({id:++reqSeq,x:-6,walk:0});
+  pending.forEach((p,k)=>{const tx=22-Math.min(k,3)*7;if(p.x<tx){p.x=Math.min(tx,p.x+45*dt);p.walk+=dt}else p.walk=0});
+  for(let k=leaving.length-1;k>=0;k--){const p=leaving[k];p.x+=45*dt;p.walk+=dt;if(p.x>32)leaving.splice(k,1)}
   shakeT=Math.max(0,shakeT-dt);
   for(let k=parts.length-1;k>=0;k--){const p=parts[k];p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)parts.splice(k,1)}
   if(parts.length<400){
@@ -1031,7 +1034,7 @@ function update(dt){
   threads.forEach(a=>{
     if(a.state!=='idle')a.reqT+=dt;
     a.failT=Math.max(0,a.failT-dt);
-    if(a.state==='idle'&&a.i<S.T&&pending.length){pending.shift();a.state='toDoor';a.reqT=0;a.stuck=false;a.path=[{x:DOOR.x,y:DOOR.y}]}
+    if(a.state==='idle'&&a.i<S.T&&pending.length&&pending[0].x>=21){leaving.push(pending.shift());a.state='toDoor';a.reqT=0;a.stuck=false;a.path=[{x:DOOR.x,y:DOOR.y}]}
     if(a.state==='using'){if(!S.arch)a.t+=dt;if(a.t>=a.dur){release(a);if(dbLevel>=100){M.dbErr++;a.failT=1.5;goHome(a);dbFull()}else{grow();a.state='toDirJms';a.path=[{x:EX,y:Y_P1},{x:EX,y:Y_LOBBY},{x:DIR_STOP.x,y:DIR_STOP.y}]}}}
     if(a.state!=='idle'&&a.state!=='ko'&&!a.stuck&&a.reqT>STUCK){a.stuck=true;
       say('stuck'+a.i,0,a.x,a.y-22,'Empleado H'+(a.i+1),'Llevo demasiado con la misma petición. Me marcan STUCK.','bad','StuckThreadCount subió: un hilo superó Stuck Thread Max Time.')}
@@ -1130,9 +1133,10 @@ function draw(){
   for(let k=0;k<14;k++)R((k*53+11)%W,(k*29+5)%60,1,1,'#3b2c44');
   R(0,176,W,4,'#3b2c44');R(0,118,30,58,'#1d1625');
   // peticiones esperando en la calle
-  const pn=Math.min(pending.length,16);
-  for(let k=0;k<pn;k++){R(8,112-k*3,12,2,'#efe6d8');R(8,114-k*3,12,1,'#8a7d92')}
-  R(22,104,6,1,'#e6b04a');R(26,103,1,3,'#e6b04a');
+  const extra=Math.max(0,pending.length-4),pn=Math.min(extra,14);
+  for(let k=0;k<pn;k++){R(6,100-k*3,12,2,'#efe6d8');R(6,102-k*3,12,1,'#8a7d92')}
+  const cli=p=>person(p.x,Y_LOBBY,{shirt:'#8a6ad0',hair:'#5a3a1e',skin:'#f1c8a0',walk:p.walk,carry:true});
+  pending.slice(0,4).reverse().forEach(cli);leaving.forEach(cli);
 
   // edificio de enfrente: la bóveda (BD)
   R(258,10,58,166,'#2a2f3a');R(258,8,58,3,'#5d6b8a');
@@ -1221,7 +1225,7 @@ function renderLabels(){
   const used=conns.filter(c=>c.state!=='free').length,wq=waiters.length;
   L.ds.textContent='PISO 1 · CONMUTADOR = DATA SOURCE jdbc/PagosDS · LÍNEAS EN USO '+used+' DE '+S.N+(wq?' · EN FILA '+wq:'');
   L.ds.classList.toggle('down',wq>0);
-  L.inb.textContent='CALLE: '+pending.length;L.inb.classList.toggle('down',pending.length>S.T);
+  L.inb.textContent='PETICIONES: '+pending.length;L.inb.classList.toggle('down',pending.length>S.T);
   const nko=[...threads,...mdbs].filter(a=>a.state==='ko').length;
   L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS'+(nko?' · '+nko+' FUERA DE COMBATE':'');
   L.hil.classList.toggle('down',nko>0);
