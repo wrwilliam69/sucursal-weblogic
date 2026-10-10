@@ -28,14 +28,14 @@ Abre `index.html` en el navegador. No necesita instalación ni servidor. Se ve m
 
 Escenarios incluidos: pool corto, fuga de conexiones, BD lenta e hilos stuck, MDB detenido, tablespace lleno (`ORA-01653`) y archivelogs llenos (`ORA-00257`).
 
-Fallas graves con alarma: **BD caída**, **JMS Server caído** (File Store sin espacio) y **pool insuficiente**. Los personajes afectados quedan fuera de combate, suena la sirena y un tablero de alerta explica la causa, las métricas que la delatan y cómo recuperarse (en el caso del pool, con un Maximum Capacity recomendado).
+Fallas graves con alarma: **BD caída**, **JMS Server caído** (File Store sin espacio), **pool insuficiente** y **falla desconocida**. Los personajes afectados quedan fuera de combate, suena la sirena y un tablero de alerta explica la causa, las métricas que la delatan y cómo recuperarse (en el caso del pool, con un Maximum Capacity recomendado).
 
 Las métricas usan los nombres reales de los MBeans de runtime de WebLogic (`ActiveConnectionsCurrentCount`, `WaitingForConnectionCurrentCount`, `MessagesCurrentCount`, `StuckThreadCount`…).
 
 ## Personajes
 
 - **Mandy**, la gerente: da las alertas. Es un homenaje a mi gata siamesa.
-- **El ingeniero de mantenimiento**, con casco: va al sitio del problema y propone el paso del runbook.
+- **El ingeniero de mantenimiento**, con casco: va al sitio del problema y propone el paso del runbook. Lleva un letrero con su diagnóstico: `?` mientras investiga o si no encuentra la causa, y `BD`, `JMS`, `POOL` o `HILO` cuando la identifica.
 
 ## Estado
 
