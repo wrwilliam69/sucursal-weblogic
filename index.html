@@ -864,6 +864,7 @@ const mdbs=[0,1].map(i=>{const h={x:58+i*14,y:Y_SOT};return{kind:'m',i,x:h.x,y:h
 /* ---------- bitácora y marcadores ---------- */
 const logEl=$('logB');
 function say(key,cool,x,y,who,text,kind,logText){
+  if(S.crash&&/^(q|wm|ds|mdbwait|less|tswarn)$/.test(key))return;
   if(cool&&lastAlert[key]!==undefined&&t-lastAlert[key]<cool)return;
   lastAlert[key]=t;
   if(!key.startsWith('bot'))botTrigger(key);
@@ -882,7 +883,7 @@ const bot={x:192,y:Y_LOBBY,home:{x:192,y:Y_LOBBY},state:'idle',t:0,walk:0,path:[
 function liftPath(from,to){return floorOf(from.y)===floorOf(to.y)?[{x:to.x,y:to.y}]:[{x:EX,y:from.y},{x:EX,y:to.y},{x:to.x,y:to.y}]}
 let botKey='';
 function codeFor(k){if(k==='crash-unk')return '?';if(/^(crash-db|slow|arch|ts|tswarn)$/.test(k))return 'BD';if(/^(crash-jms|q|errq)$/.test(k))return 'JMS';if(/^(crash-pool|ds|leak)$/.test(k))return 'POOL';if(/^(stuck|wm)/.test(k))return 'HILO';return '?'}
-function botGo(x,y,msg){if(bot.state!=='idle')return;bot.state='going';bot.msg=msg;bot.code=codeFor(botKey);bot.path=liftPath(bot,{x,y})}
+function botGo(x,y,msg){if(bot.state!=='idle')return;bot.state='going';bot.msg=msg;bot.code=codeFor(botKey);bot.key=botKey;bot.path=liftPath(bot,{x,y})}
 function drawBotSign(){
   if(bot.state!=='going'&&bot.state!=='working')return;
   const x=Math.round(bot.x),y=Math.round(bot.y),known=bot.state==='working'&&bot.code&&bot.code!=='?';
@@ -891,6 +892,7 @@ function drawBotSign(){
   R(bx,by,w+4,9,'#1d1424');R(bx,by,w+4,1,c);ptext(txt,bx+2,by+2,c);R(x,by+9,1,2,'#1d1424');
 }
 function botTrigger(key){
+  if(S.crash&&!key.startsWith('crash-'))return;
   botKey=key;
   if(key==='crash-unk')return botGo(130,Y_LOBBY,'No sé qué falló: ninguna métrica apunta a la BD, a la cola ni al pool. Reviso ms1.log, tomo thread dumps y miro la red entre el servidor y la BD.');
   if(key==='crash-db')return botGo(244,Y_P1,'BD caída. Runbook: confirmar con el DBA, revisar el listener y, cuando vuelva, verificar que el Data Source se recupere solo (Test Connections On Reserve).');
@@ -917,7 +919,7 @@ function botUpdate(dt){
       if(bot.state==='going'){bot.state='working';bot.t=0;say('bot'+t,0,bot.x,bot.y-24,'Claude · mantenimiento',bot.msg,'info')}
       else bot.state='idle';
     }
-  } else if(bot.state==='working'&&bot.t>3.4){bot.state='back';bot.path=liftPath(bot,bot.home)}
+  } else if(bot.state==='working'&&bot.t>3.4&&!(S.crash&&bot.key&&bot.key.startsWith('crash-'))){bot.state='back';bot.path=liftPath(bot,bot.home)}
 }
 
 /* ---------- simulación ---------- */
@@ -1461,10 +1463,11 @@ $('bSlow').onclick=()=>{S.slow=!S.slow;sync()};
 $('bLeak').onclick=()=>{S.leak=!S.leak;sync()};
 $('bFill').onclick=()=>{S.fast=!S.fast;sync()};
 $('bArch').onclick=()=>{S.arch=!S.arch;sync()};
-$('bCdb').onclick=()=>S.crash==='db'?endCrash(false):startCrash('db');
-$('bCjms').onclick=()=>S.crash==='jms'?endCrash(false):startCrash('jms');
-$('bCpool').onclick=()=>S.crash==='pool'?endCrash(false):startCrash('pool');
-$('bCunk').onclick=()=>S.crash==='unk'?endCrash(false):startCrash('unk');
+const crashBtn=(k,id)=>()=>S.crash===k?endCrash(false):applyScen(SCEN.find(x=>x.id===id));
+$('bCdb').onclick=crashBtn('db','caidabd');
+$('bCjms').onclick=crashBtn('jms','caidajms');
+$('bCpool').onclick=crashBtn('pool','poolchico');
+$('bCunk').onclick=crashBtn('unk','desconocida');
 $('bDba').onclick=()=>{let did=false;
   if(S.arch){S.arch=false;did=true;say('dba1',0,287,40,'DBA','Respaldé y depuré los archivelogs. La bóveda vuelve a aceptar cambios.','good')}
   if(dbLevel>=80){dbLevel=55;S.fast=false;did=true;say('dba2',0,287,70,'DBA','Agregué un datafile al tablespace. Hay espacio otra vez.','good')}
