@@ -68,6 +68,11 @@ input[type=range]{flex:1;min-width:0;accent-color:var(--brass)}
 .sc{text-align:left;font-family:var(--f-body);font-weight:700;font-size:13px;padding:8px 10px;background:var(--panel-2);color:var(--fg);border:2px solid var(--line);cursor:pointer}
 .sc small{display:block;font-weight:400;color:var(--muted);font-size:12px}
 .sc[aria-pressed="true"]{border-color:var(--teal)}
+.sgrp{grid-column:1/-1;font-family:var(--f-display);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+.sgrp:first-child{margin-top:0}
+.sc.grave{border-color:#5a2a30}
+.sc.grave small{color:#f09595}
+.sc.grave[aria-pressed="true"]{border-color:var(--bad)}
 .story{margin:0;font-size:14px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{font-family:var(--f-display);font-size:10px;letter-spacing:.05em;padding:5px 8px;background:transparent;color:var(--fg);border:2px solid var(--line);cursor:pointer}
@@ -244,7 +249,8 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
           <div class="row"><input id="bN" type="range" min="2" max="12" step="1" value="5"><span class="v" id="bNV">5</span></div>
         </div>
         <div class="ctl" style="grid-column:1/-1">
-          <span class="k">Situaciones</span>
+          <span class="k">Modo experto: combinar problemas</span>
+          <small style="color:var(--muted);font-size:12px">Estos interruptores se suman a lo que esté corriendo, para mezclar problemas a propósito. Para ver un caso solo, elige un escenario.</small>
           <div class="toggles">
             <button class="tg danger" id="bSlow" aria-pressed="false">BD lenta</button>
             <button class="tg danger" id="bLeak" aria-pressed="false">Fuga de conexiones</button>
@@ -252,15 +258,6 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
             <button class="tg danger" id="bFill" aria-pressed="false">Bóveda creciendo rápido</button>
             <button class="tg danger" id="bArch" aria-pressed="false">Archivelogs llenos</button>
             <button class="tg" id="bDba">Llamar al DBA</button>
-          </div>
-        </div>
-        <div class="ctl" style="grid-column:1/-1">
-          <span class="k">Fallas graves</span>
-          <div class="toggles">
-            <button class="tg danger" id="bCdb" aria-pressed="false">Se cae la BD</button>
-            <button class="tg danger" id="bCjms" aria-pressed="false">Se cae el JMS Server</button>
-            <button class="tg danger" id="bCpool" aria-pressed="false">Pool insuficiente</button>
-            <button class="tg danger" id="bCunk" aria-pressed="false">Falla desconocida</button>
             <button class="tg" id="bPause" aria-pressed="false">Pausa</button>
             <button class="tg" id="bLbl" aria-pressed="true">Nombres</button>
           </div>
@@ -1446,15 +1443,15 @@ const SCEN=[
    story:'Algunos empleados caen sin razón aparente, pero la bóveda, la correspondencia y el conmutador se ven bien. El ingeniero llega con un signo de interrogación: no sabe qué falló. Es el incidente más difícil, porque hay que investigar en los logs antes de actuar.'}
 ];
 const scenEl=$('scenB'),storyEl=$('storyB');
-SCEN.forEach(s=>{const b=document.createElement('button');b.className='sc';b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
+const GRP={normal:'Punto de partida',corto:'Problemas de rendimiento',caidabd:'Fallas graves'};let inGrave=false;
+SCEN.forEach(s=>{if(GRP[s.id]){const h=document.createElement('div');h.className='sgrp';h.textContent=GRP[s.id];scenEl.appendChild(h);inGrave=s.id==='caidabd'}const b=document.createElement('button');b.className='sc'+(inGrave?' grave':'');b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
 function applyScen(s){if(S.crash||alertKind)endCrash(true);resetWorld();Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
   scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='scB-'+s.id))}
 
 /* ---------- controles ---------- */
 function sync(){
   $('bRate').value=S.rate;$('bRateV').textContent=S.rate;$('bT').value=S.T;$('bTV').textContent=S.T;$('bN').value=S.N;$('bNV').textContent=S.N;
-  $('bSlow').setAttribute('aria-pressed',S.slow);$('bLeak').setAttribute('aria-pressed',S.leak);$('bMdb').setAttribute('aria-pressed',S.mdbDown);$('bFill').setAttribute('aria-pressed',S.fast);$('bArch').setAttribute('aria-pressed',S.arch);
-  $('bCdb').setAttribute('aria-pressed',S.crash==='db');$('bCjms').setAttribute('aria-pressed',S.crash==='jms');$('bCpool').setAttribute('aria-pressed',S.crash==='pool');$('bCunk').setAttribute('aria-pressed',S.crash==='unk');$('bPause').setAttribute('aria-pressed',S.paused);
+  $('bSlow').setAttribute('aria-pressed',S.slow);$('bLeak').setAttribute('aria-pressed',S.leak);$('bMdb').setAttribute('aria-pressed',S.mdbDown);$('bFill').setAttribute('aria-pressed',S.fast);$('bArch').setAttribute('aria-pressed',S.arch);$('bPause').setAttribute('aria-pressed',S.paused);
 }
 $('bRate').oninput=e=>{S.rate=+e.target.value;$('bRateV').textContent=S.rate};
 $('bT').oninput=e=>{S.T=+e.target.value;$('bTV').textContent=S.T};
@@ -1463,11 +1460,7 @@ $('bSlow').onclick=()=>{S.slow=!S.slow;sync()};
 $('bLeak').onclick=()=>{S.leak=!S.leak;sync()};
 $('bFill').onclick=()=>{S.fast=!S.fast;sync()};
 $('bArch').onclick=()=>{S.arch=!S.arch;sync()};
-const crashBtn=(k,id)=>()=>S.crash===k?endCrash(false):applyScen(SCEN.find(x=>x.id===id));
-$('bCdb').onclick=crashBtn('db','caidabd');
-$('bCjms').onclick=crashBtn('jms','caidajms');
-$('bCpool').onclick=crashBtn('pool','poolchico');
-$('bCunk').onclick=crashBtn('unk','desconocida');
+
 $('bDba').onclick=()=>{let did=false;
   if(S.arch){S.arch=false;did=true;say('dba1',0,287,40,'DBA','Respaldé y depuré los archivelogs. La bóveda vuelve a aceptar cambios.','good')}
   if(dbLevel>=80){dbLevel=55;S.fast=false;did=true;say('dba2',0,287,70,'DBA','Agregué un datafile al tablespace. Hay espacio otra vez.','good')}
