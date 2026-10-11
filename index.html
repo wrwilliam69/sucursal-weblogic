@@ -227,6 +227,7 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
     <span><i class="sw" style="background:#8c2f2b;width:14px;height:6px"></i>Bandeja roja = cola de error: cartas que fallaron 3 veces y esperan revisión</span>
     <span><i class="sw" style="background:#e8605a;width:14px;height:6px"></i>Empleado mareado con estrellas = acaba de recibir un error; la petición falló y él vuelve libre</span>
     <span><i class="sw" style="background:#ffe08a;width:10px;height:10px"></i>Letrero sobre el ingeniero: ? = aún no sabe qué falló · BD, JMS, POOL o HILO = causa identificada</span>
+    <span><i class="sw" style="background:#2a2f3a;width:10px;height:10px;outline:1px solid #5a4a62"></i>Cajita a la salida del conmutador = el driver JDBC, que traduce a Oracle</span>
     <span><i class="sw" style="background:#5d6b8a;width:14px"></i>Bóveda de enfrente = la BD, fuera del servidor</span>
   </div>
   <div class="grid">
@@ -681,6 +682,7 @@ const CONCEPTS={
   nodos:{chip:'Nodos',title:'Nodos (las dos salas)',dl:[
     ['Analogía','Dos salas iguales, cada una con sus propios cajeros. Trabajan al mismo tiempo y se cubren entre sí.'],
     ['Técnico','Dos servidores en clúster activo-activo. Un Data Source desplegado en el clúster crea un pool en cada servidor, así que Maximum Capacity es por nodo, no total.'],
+    ['Lo que recibe Oracle','La suma de todos los pools: con 2 nodos y Max = 15, Oracle puede recibir hasta 30 sesiones de este Data Source. Esa suma debe caber en el parámetro processes (y sessions) de Oracle; si lo supera, las conexiones nuevas fallan con ORA-00020.'],
     ['Pruébalo','“Cae NODO-02”: lo que estaba en curso hace rollback y reintenta por NODO-01. Con idempotencia, nadie paga doble.']]},
   pool:{chip:'Pool JDBC',title:'Pool de conexiones (los cajeros)',dl:[
     ['Analogía','Los cajeros ya están sentados y listos. Atienden, quedan libres y llaman al siguiente. No se contrata un cajero por cliente.'],
@@ -965,7 +967,7 @@ const CR={
   pool:{t:'ALERTA · HAY QUE AUMENTAR EL POOL',b:'',m:'WaitingForConnectionCurrentCount alto por varios segundos · StuckThreadCount sube · nadie atiende peticiones nuevas',btn:''}
 };
 function poolText(){recN=Math.min(12,Math.max(S.N+1,Math.ceil(peak*1.25)));
-  alB.textContent='Hay '+waiters.length+' en fila esperando una línea'+(S.crash==='pool'?'. Como el pool espera sin límite (Connection Reserve Timeout = 0), nadie se rinde: todos quedan bloqueados y la calle se llena':'')+'. La demanda pico fue de '+peak+' conexiones y el pool solo tiene '+S.N+'. Recomendación: subir Maximum Capacity a '+recN+', después de descartar consultas lentas y confirmar que la BD aguanta esas sesiones.';
+  alB.textContent='Hay '+waiters.length+' en fila esperando una línea'+(S.crash==='pool'?'. Como el pool espera sin límite (Connection Reserve Timeout = 0), nadie se rinde: todos quedan bloqueados y la calle se llena':'')+'. La demanda pico fue de '+peak+' conexiones y el pool solo tiene '+S.N+'. Recomendación: subir Maximum Capacity a '+recN+', después de descartar consultas lentas. Ojo: en clúster cada nodo crea su propio pool; con 2 nodos Oracle recibiría hasta '+(recN*2)+' sesiones, y esa suma debe caber en processes de Oracle (si no, ORA-00020).';
   alBtn.textContent='Aplicar: Maximum Capacity = '+recN}
 function showAlert(kind){
   if(alertKind===kind)return;alertKind=kind;const c=CR[kind];
@@ -1203,6 +1205,7 @@ function draw(){
   conns.forEach((c,i)=>{if(c.state!=='busy'||!c.owner||c.owner.state!=='using')return;
     const sp=S.arch?0:S.slow?.35:1.6,p=((t*sp)+i*.37)%1,d=(p<.5?p*2:(1-p)*2)*128;
     R(143+d,26,2,2,'#e6b04a')});
+  R(142,21,10,11,'#5a4a62');R(143,22,8,9,'#2a2f3a');R(144,24,2,1,'#56b8ad');R(147,24,3,1,'#e6b04a');R(144,27,6,1,'#6d6475');R(144,29,4,1,'#6d6475');R(146,19,2,2,'#5a4a62');
 
   // LOBBY: directorio (JNDI) y recepción
   R(194,68,26,30,'#1d1424');R(194,66,26,2,'#c9973a');
@@ -1251,7 +1254,7 @@ function lbl(x,y,txt){const s=document.createElement('span');s.className='lbl';s
 const L={
   srv:lbl(30,-1,'EDIFICIO = MANAGED SERVER ms1'),bd:lbl(258,-1,'BÓVEDA = BD ORACLE'),
   ds:lbl(48,7,''),inb:lbl(0,76,''),hil:lbl(36,64,''),dir:lbl(176,64,'DIRECTORIO = JNDI'),
-  jms:lbl(88,121,''),ts:lbl(262,63,''),err:lbl(36,125,''),st:lbl(88,164,'ARCHIVO EN DISCO = FILE STORE'),mdb:lbl(36,163,''),lift:lbl(222,177,'ASCENSOR')
+  jms:lbl(88,121,''),ts:lbl(262,63,''),err:lbl(36,125,''),drv:lbl(154,28,'DRIVER = TRADUCTOR'),st:lbl(88,164,'ARCHIVO EN DISCO = FILE STORE'),mdb:lbl(36,163,''),lift:lbl(222,177,'ASCENSOR')
 };
 function renderLabels(){
   const busyT=threads.filter(a=>a.i<S.T&&a.state!=='idle').length;
@@ -1274,7 +1277,7 @@ const ZONES=[
   {k:'mandy',x:146,y:82,w:38,h:22},{k:'claude',x:184,y:94,w:16,h:22},
   {k:'jndi',x:192,y:64,w:30,h:36},{k:'errorq',x:44,y:132,w:38,h:12},{k:'mdb',x:44,y:146,w:40,h:28},
   {k:'store',x:86,y:156,w:130,h:10},{k:'cola',x:86,y:122,w:136,h:34},
-  {k:'espera',x:142,y:34,w:80,h:26},{k:'pool',x:30,y:8,w:192,h:54},{k:'bd',x:256,y:6,w:62,h:170},
+  {k:'driver',x:140,y:18,w:14,h:16},{k:'espera',x:142,y:34,w:80,h:26},{k:'pool',x:30,y:8,w:192,h:54},{k:'bd',x:256,y:6,w:62,h:170},
   {k:'lift',x:EX-11,y:8,w:22,h:166},{k:'hilos',x:30,y:64,w:116,h:54},{k:'hilos',x:0,y:90,w:30,h:30}
 ];
 
@@ -1295,7 +1298,15 @@ const CONCEPTS={
   pool:{chip:'Data Source',title:'Conmutador del piso 1 = Data Source',dl:[
     ['Analogía','Cada columna es una línea telefónica ya abierta hacia la bóveda de enfrente. El empleado toma una línea, habla con la bóveda y la cuelga para el siguiente.'],
     ['Técnico','<code>ds.getConnection()</code> reserva una conexión libre del pool. <code>con.close()</code> no la cierra de verdad: la devuelve al pool.'],
+    ['Capacidad','Initial Capacity: líneas que se abren al arrancar. Minimum Capacity: las que nunca se cierran. Maximum Capacity: el tope; las columnas oscuras son las que pasan de ese tope. Shrink Frequency cierra las sobrantes cuando baja la carga.'],
+    ['En clúster','Cada Managed Server crea su propio pool. Con 2 nodos y Max = 5, Oracle puede recibir 10 sesiones: la suma debe caber en processes y sessions de Oracle (si no, ORA-00020).'],
+    ['Tipos','Generic: un pool contra una BD (este). Multi Data Source: agrupa varios Data Sources con balanceo o failover. GridLink: para Oracle RAC, con Fast Connection Failover usando ONS.'],
     ['Métrica','<code>ActiveConnectionsCurrentCount</code>, <code>NumAvailable</code>, <code>CurrCapacity</code>']]},
+  driver:{chip:'Driver',title:'La operadora del conmutador = Driver JDBC',dl:[
+    ['Analogía','El empleado habla Java y la bóveda habla el idioma de Oracle. La operadora, en la salida del conmutador, traduce cada llamada.'],
+    ['Técnico','El driver JDBC de Oracle (Oracle Thin, o Thin XA para transacciones XA) vive dentro del Data Source. El Data Source lo usa para abrir las conexiones físicas del pool y para traducir cada consulta.'],
+    ['Driver, Data Source y Pool','Driver = el traductor (cómo hablar con Oracle). Data Source = el conmutador completo: configuración, URL, usuario y su nombre JNDI. Pool = las líneas que el Data Source mantiene abiertas.'],
+    ['No confundir','JNDI no traduce: solo dice dónde está el Data Source. El que traduce es el driver.']]},
   espera:{chip:'Espera',title:'Fila junto al conmutador',dl:[
     ['Analogía','Si no hay líneas libres, se hace fila al lado del conmutador. Empleados y back office esperan en la misma fila, por orden de llegada.'],
     ['Técnico','Se espera hasta Connection Reserve Timeout (10 s por defecto). Si se agota, la aplicación recibe una excepción y la petición falla (X roja).'],
@@ -1312,7 +1323,8 @@ const CONCEPTS={
     ['Analogía','Está en otro edificio porque no vive en WebLogic. Los puntos amarillos que cruzan la calle son consultas que van y vuelven. Los estantes son los datos guardados: se llenan con cada pago.'],
     ['Tablespace lleno','Cuando el espacio de la tabla llega al 100 %, Oracle responde ORA-01653 y la escritura falla. La aplicación recibe una excepción, la petición devuelve error y los mensajes que procesa el MDB hacen rollback hasta caer en la cola de error.'],
     ['Archivelogs llenos','Si se llena el espacio donde Oracle guarda sus archivelogs, la BD deja de aceptar cambios (ORA-00257) y las sesiones se quedan esperando. En WebLogic se ve como pool agotado e hilos stuck, aunque WebLogic no tenga la culpa.'],
-    ['Técnico','Si la BD responde lento, cada conexión queda ocupada más tiempo. El pool se agota aunque no llegue más tráfico: el síntoma está en WebLogic, la causa en la BD.']]},
+    ['Técnico','Si la BD responde lento, cada conexión queda ocupada más tiempo. El pool se agota aunque no llegue más tráfico: el síntoma está en WebLogic, la causa en la BD.'],
+    ['Si Oracle reinicia','Las líneas del pool quedan muertas, pero el pool no lo sabe. Sin Test Connections On Reserve, las primeras peticiones reciben esas líneas y fallan. Con la prueba activada, WebLogic detecta la línea muerta, la reemplaza y entrega una sana.']]},
   lift:{chip:'Ascensor',title:'El ascensor',dl:[
     ['Para qué está','Solo une los pisos para que se vea el recorrido. No representa ningún componente de WebLogic.']]},
   cola:{chip:'Cola JMS',title:'Correspondencia del sótano = cola JMS',dl:[
