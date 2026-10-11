@@ -219,6 +219,7 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
     <span><i class="sw" style="background:#2c3240"></i>no existe: por encima de Maximum Capacity</span>
     <span><i class="sw" style="background:#e6b04a;height:10px"></i>Fila del directorio encendida = alguien consultó JNDI</span>
     <span><i class="sw doc" style="background:#efe6d8"></i>Carta = una tarea pendiente para el back office</span>
+    <span><i class="sw" style="background:#8c2f2b;width:14px;height:6px"></i>Bandeja roja = cola de error: cartas que fallaron 3 veces y esperan revisión</span>
     <span><i class="sw" style="background:#e8605a;width:14px;height:6px"></i>Empleado acostado con estrellas = fuera de combate por una falla grave</span>
     <span><i class="sw" style="background:#ffe08a;width:10px;height:10px"></i>Letrero sobre el ingeniero: ? = aún no sabe qué falló · BD, JMS, POOL o HILO = causa identificada</span>
     <span><i class="sw" style="background:#5d6b8a;width:14px"></i>Bóveda de enfrente = la BD, fuera del servidor</span>
@@ -1211,8 +1212,9 @@ function draw(){
   const qn=Math.min(queue.length,23);
   for(let k=0;k<qn;k++){const x=92+k*5;R(x,143,4,10,'#efe6d8');R(x,143,4,1,'#b3a5bd')}
   R(88,158,126,6,M.storeBlink>0?'#e6b04a':'#5a4a62');R(90,160,8,2,'#2c2436');R(150,160,10,1,'#2c2436');
-  R(46,136,34,6,'#8c2f2b');R(46,135,34,1,'#e8605a');
-  for(let k=0;k<Math.min(M.errorQ,4);k++)R(49,134-k,28,1,'#efe6d8');
+  R(46,136,34,6,'#8c2f2b');R(46,135,34,1,'#e8605a');R(44,133,2,9,'#8c2f2b');R(80,133,2,9,'#8c2f2b');
+  for(let k=0;k<3;k++){R(61+k,137+k,1,1,'#efe6d8');R(63-k,137+k,1,1,'#efe6d8')}
+  for(let k=0;k<Math.min(M.errorQ,4);k++){R(49,133-k*2,28,2,'#efe6d8');R(52,133-k*2,2,1,'#e8605a')}
 
   // ascensor
   R(EX-11,8,22,164,'#120d18');R(EX-11,8,1,164,'#43364f');R(EX+10,8,1,164,'#43364f');
@@ -1243,7 +1245,7 @@ function lbl(x,y,txt){const s=document.createElement('span');s.className='lbl';s
 const L={
   srv:lbl(30,-1,'EDIFICIO = MANAGED SERVER ms1'),bd:lbl(258,-1,'BÓVEDA = BD ORACLE'),
   ds:lbl(48,7,''),inb:lbl(0,76,''),hil:lbl(36,64,''),dir:lbl(176,64,'DIRECTORIO = JNDI'),
-  jms:lbl(88,121,''),ts:lbl(262,63,''),st:lbl(88,164,'ARCHIVO EN DISCO = FILE STORE'),mdb:lbl(36,163,''),lift:lbl(222,177,'ASCENSOR')
+  jms:lbl(88,121,''),ts:lbl(262,63,''),err:lbl(36,125,''),st:lbl(88,164,'ARCHIVO EN DISCO = FILE STORE'),mdb:lbl(36,163,''),lift:lbl(222,177,'ASCENSOR')
 };
 function renderLabels(){
   const busyT=threads.filter(a=>a.i<S.T&&a.state!=='idle').length;
@@ -1257,6 +1259,7 @@ function renderLabels(){
   if(alertKind==='pool')poolText();
   L.jms.textContent='SÓTANO · CORRESPONDENCIA = COLA JMS · '+queue.length+' CARTAS';
   L.mdb.textContent='BACK OFFICE = MDB';
+  L.err.textContent='BANDEJA DE ERRORES = COLA DE ERROR: '+M.errorQ;L.err.classList.toggle('down',M.errorQ>0);
   L.ts.textContent=S.arch?'CONGELADA':(dbLevel>=100?'LLENA 100%':'DATOS '+Math.round(dbLevel)+'%');
   L.ts.classList.toggle('down',S.arch||dbLevel>=100);
 }
