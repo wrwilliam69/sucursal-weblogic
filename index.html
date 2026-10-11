@@ -849,7 +849,7 @@ const floorOf=y=>y<62?1:y<118?0:-1;
 
 /* ---------- estado ---------- */
 const S={rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:false,arch:false,paused:false};
-const RESERVE=6,STUCK=8,HOG=4,INACTIVE=8,SPEED=150,LIFT=260;
+const RESERVE=5,STUCK=14,HOG=6,INACTIVE=8,SPEED=150,LIFT=260;
 let t=0,pending=[],queue=[],waiters=[],reqSeq=0,msgSeq=0,lastAlert={},selected='intro',dsStreak=0,wmStreak=0;
 let litDs=0,litJms=0,markers=[],leaving=[];
 const M={waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0};
@@ -861,7 +861,7 @@ const mdbs=[0,1].map(i=>{const h={x:58+i*14,y:Y_SOT};return{kind:'m',i,x:h.x,y:h
 /* ---------- bitácora y marcadores ---------- */
 const logEl=$('logB');
 function say(key,cool,x,y,who,text,kind,logText){
-  if(S.crash&&/^(q|wm|ds|mdbwait|less|tswarn)$/.test(key))return;
+  if(S.crash&&/^(q|wm|ds|mdbwait|less|tswarn|stuck\d+)$/.test(key))return;
   if(cool&&lastAlert[key]!==undefined&&t-lastAlert[key]<cool)return;
   lastAlert[key]=t;
   if(!key.startsWith('bot'))botTrigger(key);
@@ -960,10 +960,10 @@ const CR={
   db:{t:'ALERTA CRÍTICA · BD CAÍDA',b:'La bóveda no responde. Cada línea del conmutador falla al probarse y los empleados que la usaban quedaron fuera de combate. Toda petición nueva termina en error, aunque WebLogic esté sano.',m:'FailuresToReconnectCount sube · ActiveConnectionsCurrentCount cae a 0 · el Data Source deja de estar en Running',btn:'Llamar al DBA: levantar la BD'},
   jms:{t:'ALERTA · JMS SERVER CAÍDO',b:'El archivo en disco (File Store) se quedó sin espacio y el JMS Server dejó de aceptar cartas. Los empleados no pueden dejar sus tareas y el back office se detuvo. Las cartas que ya estaban guardadas no se pierden.',m:'HealthState del JMS Server en estado crítico · el envío del mensaje lanza JMSException',btn:'Liberar disco y reiniciar el JMS Server'},
   unk:{t:'ALERTA · FALLA SIN CAUSA CLARA',b:'Algunas peticiones fallan y unos empleados caen al azar, pero la bóveda, la correspondencia y el conmutador se ven normales. El ingeniero no sabe qué falló: hay que investigar antes de tocar nada.',m:'Revisar ms1.log y ms1.out · tomar thread dumps · revisar la red y el sistema operativo',btn:'Encontrar la causa y corregir'},
-  pool:{t:'ALERTA · HAY QUE AUMENTAR EL POOL',b:'',m:'WaitingForConnectionCurrentCount alto por varios segundos · WaitingForConnectionFailureTotal sube',btn:''}
+  pool:{t:'ALERTA · HAY QUE AUMENTAR EL POOL',b:'',m:'WaitingForConnectionCurrentCount alto por varios segundos · StuckThreadCount sube · nadie atiende peticiones nuevas',btn:''}
 };
 function poolText(){recN=Math.min(12,Math.max(S.N+1,Math.ceil(peak*1.25)));
-  alB.textContent='Hay '+waiters.length+' en fila esperando una línea'+(S.crash==='pool'?' y varios empleados ya colapsaron':'')+'. La demanda pico fue de '+peak+' conexiones y el pool solo tiene '+S.N+'. Recomendación: subir Maximum Capacity a '+recN+', después de descartar consultas lentas y confirmar que la BD aguanta esas sesiones.';
+  alB.textContent='Hay '+waiters.length+' en fila esperando una línea'+(S.crash==='pool'?'. Como el pool espera sin límite (Connection Reserve Timeout = 0), nadie se rinde: todos quedan bloqueados y la calle se llena':'')+'. La demanda pico fue de '+peak+' conexiones y el pool solo tiene '+S.N+'. Recomendación: subir Maximum Capacity a '+recN+', después de descartar consultas lentas y confirmar que la BD aguanta esas sesiones.';
   alBtn.textContent='Aplicar: Maximum Capacity = '+recN}
 function showAlert(kind){
   if(alertKind===kind)return;alertKind=kind;const c=CR[kind];
@@ -977,7 +977,7 @@ function startCrash(kind){
   if(kind==='db'){burst(287,40,50,['#e8605a','#f0a63a','#ffe08a','#5d6b8a'],70);say('crash-db',0,287,40,'Bóveda Oracle','¡Me caí! No respondo a ninguna conexión.','bad','La BD está caída: el pool no puede abrir ni probar conexiones.')}
   if(kind==='jms'){burst(150,146,40,['#efe6d8','#d8ccb8','#e8605a'],60);say('crash-jms',0,150,140,'JMS Server','¡Se llenó el disco del File Store! No puedo recibir más cartas.','bad','El JMS Server dejó de aceptar mensajes.')}
   if(kind==='unk'){say('crash-unk',0,130,90,'Mandy','Algo anda mal: hay errores, pero no sé de dónde vienen.','warn','Las métricas de BD, JMS y pool se ven normales.')}
-  if(kind==='pool'){Object.assign(S,{N:2,T:10,rate:1.6});peak=0;burst(96,20,24,['#ffe08a','#f0a63a'],50);say('crash-pool',0,96,16,'Conmutador jdbc/PagosDS','¡Solo tengo 2 líneas para 10 empleados! No doy abasto.','bad')}
+  if(kind==='pool'){Object.assign(S,{N:2,T:10,rate:1.6,hold:3});peak=0;burst(96,20,24,['#ffe08a','#f0a63a'],50);say('crash-pool',0,96,16,'Conmutador jdbc/PagosDS','¡Solo tengo 2 líneas para 10 empleados, y estoy configurado para que esperen sin límite!','bad')}
   sync();showAlert(kind);
 }
 function endCrash(quiet){
@@ -999,6 +999,7 @@ function resetWorld(){
   dbLevel=55;failRec=0;frT=0;peak=0;calmT=0;dsStreak=0;wmStreak=0;shakeT=0;lastAlert={};litDs=0;litJms=0;
   bot.state='idle';bot.path=[];bot.x=bot.home.x;bot.y=bot.home.y;
 }
+function clock(x,y){x=Math.round(x);y=Math.round(y);R(x-1,y-1,3,1,'#efe6d8');R(x-2,y,5,5,'#efe6d8');R(x,y+1,1,2,'#1d1424');R(x+1,y+2,1,1,'#1d1424')}
 function personKO(a){
   const x=Math.round(a.x),y=Math.round(a.y),sh=a.kind==='t'?'#3f9e95':'#e6b04a',hair=a.kind==='t'?'#2b1d14':'#151515';
   R(x-9,y-3,4,2,'#2c2436');R(x-5,y-4,6,4,sh);R(x+1,y-5,5,4,'#d9a273');R(x+5,y-5,1,4,hair);
@@ -1037,6 +1038,7 @@ function update(dt){
     if(alertKind==='pool'&&Math.random()<dt*8){smoke(96,16);if(Math.random()<.5)burst(60+Math.random()*80,18,3,['#ffe08a'],30)}
   }
   if(S.crash==='db'){[...threads,...mdbs].forEach(a=>{if(a.state==='using'||a.state==='toPlug'||a.state==='waitConn')ko(a)});frT+=dt;if(frT>2){frT=0;failRec++}}
+  if(S.crash==='pool'&&threads.some(a=>a.stuck&&a.state==='waitConn'))say('poolstuck',999,180,40,'Work Manager','Los empleados llevan demasiado tiempo bloqueados esperando una línea: WebLogic los marca STUCK.','bad','StuckThreadCount sube: hilos bloqueados en la reserva de conexiones.');
   if(S.crash==='unk')threads.forEach(a=>{if(a.state==='using'&&Math.random()<dt*.6)ko(a)});
   if(S.crash==='jms')mdbs.forEach(a=>{if(a.state!=='idle'&&a.state!=='ko'&&a.state!=='toHome')ko(a)});
 
@@ -1046,7 +1048,7 @@ function update(dt){
   while(waiters.length){const c=freeConn();if(!c)break;grant(waiters.shift(),c)}
   for(let k=waiters.length-1;k>=0;k--){
     const a=waiters[k];a.waitT+=dt;
-    if(S.crash==='pool'&&a.kind==='t'&&a.waitT>RESERVE*.6){ko(a);continue}
+    if(S.crash==='pool')continue; // Connection Reserve Timeout = 0: esperan sin límite
     if(a.waitT>RESERVE){
       waiters.splice(k,1);
       if(a.kind==='t'){M.waitFail++;a.failT=1.5;goHome(a);
@@ -1084,7 +1086,7 @@ function update(dt){
       case'toDoor':a.carry=true;a.state='toDirDs';a.path=[{x:DIR_STOP.x,y:DIR_STOP.y}];break;
       case'toDirDs':litDs=.8;a.state='toWait';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_P1},{x:218,y:Y_P1}];break;
       case'toWait':if(S.crash==='db')ko(a);else arriveWait(a);break;
-      case'toPlug':a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9):(S.slow?2:.5))*(.7+Math.random()*.6);break;
+      case'toPlug':a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9)*(S.hold||1):(S.slow?2:.5))*(.7+Math.random()*.6);break;
       case'toDirJms':litJms=.8;a.state='toQueue';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_SOT},{x:Q_IN.x,y:Q_IN.y}];break;
       case'toQueue':if(S.crash==='jms'){ko(a);break}queue.push({id:++msgSeq,fails:0});M.received++;M.storeBlink=.35;goHome(a);break;
       case'toHome':a.state='idle';a.carry=false;break;
@@ -1227,6 +1229,7 @@ function draw(){
     const moving=a.path.length&&!(a.state==='waitConn'&&a.x===a.path[0].x&&a.y===a.path[0].y);
     person(a.x,a.y,{shirt:a.kind==='t'?(a.stuck?'#c8553d':'#3f9e95'):(S.mdbDown?'#5a5560':'#e6b04a'),hair:a.kind==='t'?'#2b1d14':'#151515',skin:a.kind==='m'&&S.mdbDown?'#8a8090':'#d9a273',walk:moving?a.walk:0,carry:a.carry,fail:a.failT>0,
       tag:(a.kind==='t'?'H':'M')+(a.i+1),tagCol:a.kind==='m'?'#fac775':(a.stuck&&a.state!=='idle'?'#e8605a':'#9fe1cb')});
+    if(a.state==='waitConn'&&a.waitT>1)clock(a.x,a.y-29);
   });
   if(S.mdbDown)mdbs.forEach(a=>{const z=Math.floor(t*2)%3;R(a.x+6+z,a.y-24-z*2,2,1,'#b3a5bd')});
   drawCrash();
@@ -1328,7 +1331,7 @@ const CONCEPTS={
   fallas:{chip:'Fallas graves',title:'Las tres fallas graves',dl:[
     ['BD caída','La bóveda explota y la calle queda cortada. El pool no puede abrir ni probar conexiones, así que cada petición falla aunque WebLogic esté sano. En el servidor se ve FailuresToReconnectCount subiendo y conexiones activas en cero.'],
     ['JMS Server caído','Revienta la correspondencia. Lo típico es que el File Store se quede sin disco: el JMS Server deja de aceptar mensajes, el envío lanza JMSException y los MDB se detienen. Lo que ya estaba persistido no se pierde.'],
-    ['Pool insuficiente','No es que algo se rompa: la demanda supera las líneas. La fila crece y las peticiones fallan por Connection Reserve Timeout. La alerta calcula la demanda pico y recomienda un Maximum Capacity, pero antes hay que descartar consultas lentas y confirmar con el DBA que la BD aguanta más sesiones.'],
+    ['Pool insuficiente','La demanda supera las líneas y además el pool espera sin límite (Connection Reserve Timeout = 0). Los hilos no mueren: se quedan bloqueados en la fila, nadie atiende peticiones nuevas y terminan marcados como STUCK. Con el timeout por defecto (10 s) sería el caso de “Pool corto”: se rinden con error y siguen vivos. La alerta calcula la demanda pico y recomienda un Maximum Capacity, pero antes hay que descartar consultas lentas y confirmar con el DBA que la BD aguanta más sesiones.'],
     ['Falla desconocida','Hay errores, pero ninguna métrica señala una causa. El ingeniero se queda con el signo de interrogación: toca revisar logs, thread dumps, red y sistema operativo. En el ejemplo, la causa era un firewall que cerraba conexiones inactivas.'],
     ['Por qué importa','Las tres terminan en peticiones con error, pero la causa y el equipo que la resuelve son distintos: DBA, infraestructura de mensajería o capacidad del pool.']]},
   claude:{chip:'Claude',title:'Claude, ingeniero de mantenimiento',dl:[
@@ -1421,8 +1424,8 @@ function cfg(k){cfgChips.querySelectorAll('.chip').forEach(b=>b.setAttribute('ar
 const SCEN=[
   {id:'normal',name:'Día normal',sub:'Todo fluye',set:{rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false},
    story:'Sigue a un empleado: recoge la petición en la puerta, mira el directorio, sube al conmutador, toma una línea hacia la bóveda, la cuelga, vuelve a mirar el directorio y baja al sótano a dejar la carta. El back office la procesa después.'},
-  {id:'corto',name:'Pool corto',sub:'10 hilos, 3 conexiones',set:{rate:2,T:10,N:3,slow:false,leak:false,mdbDown:false},
-   story:'Sobran empleados pero faltan líneas. Se forma fila junto al conmutador y el back office tampoco consigue línea. El cuello de botella es el pool. Sube Maximum Capacity y mira cómo se deshace la fila.'},
+  {id:'corto',name:'Pool corto',sub:'10 hilos, 3 conexiones',set:{rate:1.4,T:10,N:3,hold:2.5,slow:false,leak:false,mdbDown:false},
+   story:'Cierre de quincena: cada transacción ocupa la línea más tiempo. Sobran empleados pero faltan líneas. Como el Connection Reserve Timeout es de 10 s, quien espera demasiado se rinde con error (X roja) y vuelve sano a su puesto. Se forma fila junto al conmutador y el back office tampoco consigue línea. El cuello de botella es el pool. Sube Maximum Capacity y mira cómo se deshace la fila.'},
   {id:'fuga',name:'Fuga de conexiones',sub:'Falta un close()',set:{rate:1,T:6,N:5,slow:false,leak:true,mdbDown:false},
    story:'Algunos empleados se van sin colgar. Las líneas rojas quedan ocupadas sin dueño y el conmutador útil se encoge, hasta que Inactive Connection Timeout las recupera.'},
   {id:'lenta',name:'BD lenta',sub:'Hilos atascados',set:{rate:1,T:6,N:5,slow:true,leak:false,mdbDown:false},
@@ -1437,15 +1440,15 @@ const SCEN=[
    story:'La bóveda explota y deja de responder. Las líneas del conmutador se ponen rojas, la calle queda cortada y todo empleado que intenta usar una línea cae fuera de combate. Suena la alarma: es una falla de la BD, no de WebLogic. Usa el botón de la alerta para llamar al DBA.'},
   {id:'caidajms',name:'Se cae el JMS',sub:'File Store sin espacio',crash:'jms',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
    story:'La correspondencia revienta: el archivo en disco se quedó sin espacio y el JMS Server deja de recibir cartas. Los empleados que bajan a dejar su tarea caen al llegar y el back office se desploma. Las cartas que ya estaban guardadas siguen ahí. La alerta dice cómo recuperarlo.'},
-  {id:'poolchico',name:'Pool insuficiente',sub:'Hay que aumentarlo',crash:'pool',set:{rate:1.6,T:10,N:2,slow:false,leak:false,mdbDown:false},
-   story:'Solo hay 2 líneas para 10 empleados. La fila del conmutador crece, saltan chispas y los empleados que esperan demasiado colapsan. La alerta calcula la demanda pico y recomienda un nuevo Maximum Capacity; aplícalo y mira cómo se recuperan.'},
+  {id:'poolchico',name:'Pool insuficiente',sub:'Hay que aumentarlo',crash:'pool',set:{rate:1.6,T:10,N:2,hold:3,slow:false,leak:false,mdbDown:false},
+   story:'Cierre de quincena con transacciones pesadas: harían falta unas 5 líneas (1,6 peticiones por segundo × 3 s cada una) y solo hay 2 para 10 empleados. Además, el pool está configurado para esperar sin límite (Connection Reserve Timeout = 0). Los empleados se quedan congelados en la fila con su relojito, nadie atiende la calle y, con el tiempo, WebLogic los marca STUCK (placa roja). No mueren: están bloqueados. La alerta calcula la demanda pico y recomienda un Maximum Capacity; aplícalo y mira cómo se descongelan.'},
   {id:'desconocida',name:'Falla desconocida',sub:'Nadie sabe qué pasa',crash:'unk',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
    story:'Algunos empleados caen sin razón aparente, pero la bóveda, la correspondencia y el conmutador se ven bien. El ingeniero llega con un signo de interrogación: no sabe qué falló. Es el incidente más difícil, porque hay que investigar en los logs antes de actuar.'}
 ];
 const scenEl=$('scenB'),storyEl=$('storyB');
 const GRP={normal:'Punto de partida',corto:'Problemas de rendimiento',caidabd:'Fallas graves'};let inGrave=false;
 SCEN.forEach(s=>{if(GRP[s.id]){const h=document.createElement('div');h.className='sgrp';h.textContent=GRP[s.id];scenEl.appendChild(h);inGrave=s.id==='caidabd'}const b=document.createElement('button');b.className='sc'+(inGrave?' grave':'');b.id='scB-'+s.id;b.innerHTML=s.name+'<small>'+s.sub+'</small>';b.onclick=()=>applyScen(s);scenEl.appendChild(b)});
-function applyScen(s){if(S.crash||alertKind)endCrash(true);resetWorld();Object.assign(S,{fast:false,arch:false},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
+function applyScen(s){if(S.crash||alertKind)endCrash(true);resetWorld();Object.assign(S,{fast:false,arch:false,hold:1},s.set);if(s.level!==undefined)dbLevel=s.level;sync();storyEl.textContent=s.story;if(s.crash)startCrash(s.crash);
   scenEl.querySelectorAll('.sc').forEach(b=>b.setAttribute('aria-pressed',b.id==='scB-'+s.id))}
 
 /* ---------- controles ---------- */
