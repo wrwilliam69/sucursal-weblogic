@@ -225,7 +225,7 @@ footer{color:var(--muted);font-size:13px;max-width:84ch}
     <span><i class="sw" style="background:#e6b04a;height:10px"></i>Fila del directorio encendida = alguien consultó JNDI</span>
     <span><i class="sw doc" style="background:#efe6d8"></i>Carta = una tarea pendiente para el back office</span>
     <span><i class="sw" style="background:#8c2f2b;width:14px;height:6px"></i>Bandeja roja = cola de error: cartas que fallaron 3 veces y esperan revisión</span>
-    <span><i class="sw" style="background:#e8605a;width:14px;height:6px"></i>Empleado acostado con estrellas = fuera de combate por una falla grave</span>
+    <span><i class="sw" style="background:#e8605a;width:14px;height:6px"></i>Empleado mareado con estrellas = acaba de recibir un error; la petición falló y él vuelve libre</span>
     <span><i class="sw" style="background:#ffe08a;width:10px;height:10px"></i>Letrero sobre el ingeniero: ? = aún no sabe qué falló · BD, JMS, POOL o HILO = causa identificada</span>
     <span><i class="sw" style="background:#5d6b8a;width:14px"></i>Bóveda de enfrente = la BD, fuera del servidor</span>
   </div>
@@ -852,7 +852,7 @@ const S={rate:.6,T:6,N:5,slow:false,leak:false,mdbDown:false,fast:false,arch:fal
 const RESERVE=5,STUCK=14,HOG=6,INACTIVE=8,SPEED=150,LIFT=260;
 let t=0,pending=[],queue=[],waiters=[],reqSeq=0,msgSeq=0,lastAlert={},selected='intro',dsStreak=0,wmStreak=0;
 let litDs=0,litJms=0,markers=[],leaving=[];
-const M={waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0};
+const M={waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0,reqErr:0};
 let dbLevel=55;
 const conns=Array.from({length:12},(_,i)=>({i,state:'free',owner:null,leakT:0}));
 const threads=Array.from({length:12},(_,i)=>{const h={x:52+(i%6)*14,y:i<6?100:114};return{kind:'t',i,x:h.x,y:h.y,home:h,state:'idle',path:[],walk:0,conn:null,t:0,dur:0,waitT:0,reqT:0,stuck:false,failT:0,carry:false}});
@@ -893,7 +893,7 @@ function botTrigger(key){
   botKey=key;
   if(key==='crash-unk')return botGo(130,Y_LOBBY,'No sé qué falló: ninguna métrica apunta a la BD, a la cola ni al pool. Reviso ms1.log, tomo thread dumps y miro la red entre el servidor y la BD.');
   if(key==='crash-db')return botGo(244,Y_P1,'BD caída. Runbook: confirmar con el DBA, revisar el listener y, cuando vuelva, verificar que el Data Source se recupere solo (Test Connections On Reserve).');
-  if(key==='crash-jms')return botGo(150,Y_SOT,'File Store sin espacio. Runbook: liberar disco o mover el store a otro volumen, y reiniciar el JMS Server.');
+  if(key==='crash-jms')return botGo(150,Y_SOT,'File Store sin espacio. Runbook: liberar espacio en el filesystem del store o moverlo a otro volumen. Se recupera solo; no hace falta reiniciar.');
   if(key==='crash-pool')return botGo(180,Y_P1,'Pool insuficiente. Runbook: medir la demanda pico, descartar consultas lentas y subir Maximum Capacity.');
   if(key==='ds')return botGo(180,Y_P1,'Conmutador sin líneas libres. Runbook: revisar consultas lentas o subir Maximum Capacity del Data Source.');
   if(key==='leak')return botGo(100,Y_P1,'Líneas abandonadas. Activo Inactive Connection Timeout y busco el getConnection() sin close().');
@@ -952,14 +952,16 @@ function ko(a){
   if(a.state==='ko')return;
   if(a.conn){const c=a.conn;a.conn=null;c.state='free';c.owner=null}
   const w=waiters.indexOf(a);if(w>=0)waiters.splice(w,1);
-  if(a.kind==='m'&&a.msg){queue.unshift(a.msg);a.msg=null}
-  a.state='ko';a.path=[];a.carry=false;a.stuck=false;
-  burst(a.x,a.y-6,10,['#ffe08a','#f0a63a','#efe6d8'],40);
+  if(a.kind==='m'&&a.msg){if(++a.msg.fails>=3){M.errorQ++;say('errq',3,164,90,'Mandy','La carta #'+a.msg.id+' superó el Redelivery Limit (configurado en 3). Pasó a la bandeja de errores.','bad')}else queue.unshift(a.msg);a.msg=null}
+  if(a.kind==='t')M.reqErr++;
+  a.state='ko';a.koT=1.4;a.path=[];a.carry=false;a.stuck=false;
+  burst(a.x,a.y-6,8,['#ffe08a','#f0a63a','#efe6d8'],30);
 }
+function backOff(a){if(a.conn){a.conn.state='free';a.conn.owner=null;a.conn=null}const w=waiters.indexOf(a);if(w>=0)waiters.splice(w,1);if(a.msg){queue.unshift(a.msg);a.msg=null}goHome(a)}
 const CR={
-  db:{t:'ALERTA CRÍTICA · BD CAÍDA',b:'La bóveda no responde. Cada línea del conmutador falla al probarse y los empleados que la usaban quedaron fuera de combate. Toda petición nueva termina en error, aunque WebLogic esté sano.',m:'FailuresToReconnectCount sube · ActiveConnectionsCurrentCount cae a 0 · el Data Source deja de estar en Running',btn:'Llamar al DBA: levantar la BD'},
-  jms:{t:'ALERTA · JMS SERVER CAÍDO',b:'El archivo en disco (File Store) se quedó sin espacio y el JMS Server dejó de aceptar cartas. Los empleados no pueden dejar sus tareas y el back office se detuvo. Las cartas que ya estaban guardadas no se pierden.',m:'HealthState del JMS Server en estado crítico · el envío del mensaje lanza JMSException',btn:'Liberar disco y reiniciar el JMS Server'},
-  unk:{t:'ALERTA · FALLA SIN CAUSA CLARA',b:'Algunas peticiones fallan y unos empleados caen al azar, pero la bóveda, la correspondencia y el conmutador se ven normales. El ingeniero no sabe qué falló: hay que investigar antes de tocar nada.',m:'Revisar ms1.log y ms1.out · tomar thread dumps · revisar la red y el sistema operativo',btn:'Encontrar la causa y corregir'},
+  db:{t:'ALERTA CRÍTICA · BD CAÍDA',b:'La bóveda no responde. Las consultas en curso fallan con error de comunicación (por ejemplo ORA-03113 o IO Error) y las pruebas de conexión fallan. Tras 2 fallas WebLogic cierra las conexiones y deshabilita el pool para responder rápido con error, en vez de dejar a todos esperando. Los hilos no mueren: reciben la excepción, la petición falla y quedan libres.',m:'FailuresToReconnectCount sube · Count of Test Failures Till Flush y Connection Count of Refresh Failures Till Disable (2 por defecto) · el Data Source deja de estar en Running',btn:'Llamar al DBA: levantar la BD'},
+  jms:{t:'ALERTA · FILE STORE SIN ESPACIO',b:'El disco del File Store se llenó y el store responde con excepciones. Cada envío de los empleados falla con JMSException y el back office queda suspendido: el contenedor de MDB pausa la entrega y reintenta. Las cartas ya guardadas no se pierden. Según la documentación, el File Store vuelve a operar solo cuando se libera espacio, sin reiniciar.',m:'El envío lanza JMSException · el MDB se suspende y reintenta (init-suspend-seconds 5 y max-suspend-seconds 60 por defecto) · el store se recupera solo al liberar espacio',btn:'Liberar espacio en disco'},
+  unk:{t:'ALERTA · FALLA SIN CAUSA CLARA',b:'Algunas peticiones fallan de vez en cuando con “IO Error: Connection reset”, pero la BD responde, la cola está bien y el pool tiene líneas libres. Ninguna métrica apunta a una causa: hay que investigar antes de tocar nada.',m:'Revisar ms1.log y ms1.out · tomar thread dumps · revisar la red entre el servidor y la BD',btn:'Encontrar la causa y corregir'},
   pool:{t:'ALERTA · HAY QUE AUMENTAR EL POOL',b:'',m:'WaitingForConnectionCurrentCount alto por varios segundos · StuckThreadCount sube · nadie atiende peticiones nuevas',btn:''}
 };
 function poolText(){recN=Math.min(12,Math.max(S.N+1,Math.ceil(peak*1.25)));
@@ -975,27 +977,27 @@ function startCrash(kind){
   if(S.crash||alertKind)endCrash(true);
   S.crash=kind;shakeT=kind==='unk'?0:.5;bot.state='idle';bot.path=[];
   if(kind==='db'){burst(287,40,50,['#e8605a','#f0a63a','#ffe08a','#5d6b8a'],70);say('crash-db',0,287,40,'Bóveda Oracle','¡Me caí! No respondo a ninguna conexión.','bad','La BD está caída: el pool no puede abrir ni probar conexiones.')}
-  if(kind==='jms'){burst(150,146,40,['#efe6d8','#d8ccb8','#e8605a'],60);say('crash-jms',0,150,140,'JMS Server','¡Se llenó el disco del File Store! No puedo recibir más cartas.','bad','El JMS Server dejó de aceptar mensajes.')}
-  if(kind==='unk'){say('crash-unk',0,130,90,'Mandy','Algo anda mal: hay errores, pero no sé de dónde vienen.','warn','Las métricas de BD, JMS y pool se ven normales.')}
+  if(kind==='jms'){while(queue.length<6)queue.push({id:++msgSeq,fails:0});burst(150,146,40,['#efe6d8','#d8ccb8','#e8605a'],60);say('crash-jms',0,150,140,'File Store','¡Me quedé sin espacio en disco! No puedo guardar más cartas.','bad','Los envíos persistentes fallan con JMSException.')}
+  if(kind==='unk'){conns.forEach(c=>{if(c.state==='free')c.stale=true});say('crash-unk',0,130,90,'Mandy','Algo anda mal: hay errores, pero no sé de dónde vienen.','warn','Las métricas de BD, JMS y pool se ven normales.')}
   if(kind==='pool'){Object.assign(S,{N:2,T:10,rate:1.6,hold:3});peak=0;burst(96,20,24,['#ffe08a','#f0a63a'],50);say('crash-pool',0,96,16,'Conmutador jdbc/PagosDS','¡Solo tengo 2 líneas para 10 empleados, y estoy configurado para que esperen sin límite!','bad')}
   sync();showAlert(kind);
 }
 function endCrash(quiet){
   const kind=alertKind||S.crash;
   if(!quiet&&kind==='pool'){S.N=recN;say('fix-pool',0,96,16,'Conmutador jdbc/PagosDS','Ahora tengo '+recN+' líneas. La fila se deshace.','good','Maximum Capacity subió a '+recN+'.')}
-  if(!quiet&&kind==='db')say('fix-db',0,287,40,'DBA','Levanté la base de datos. El pool vuelve a probar y abrir conexiones.','good');
-  if(!quiet&&kind==='unk')say('fix-unk',0,130,90,'Claude · mantenimiento','Encontré la causa en ms1.log: un firewall cerraba las conexiones inactivas hacia la BD. Ajusté la validación de conexiones del pool.','good');
-  if(!quiet&&kind==='jms')say('fix-jms',0,150,140,'Claude · mantenimiento','Liberé espacio y reinicié el JMS Server. Las cartas guardadas siguen ahí.','good');
-  S.crash=null;alertKind=null;al.hidden=true;peak=0;calmT=0;
+  if(!quiet&&kind==='db')say('fix-db',0,287,40,'DBA','Levanté la base de datos. El pool vuelve a probar y abrir conexiones; si hubiera quedado suspendido, se reactiva con Resume desde la consola.','good');
+  if(!quiet&&kind==='unk')say('fix-unk',0,130,90,'Claude · mantenimiento','Encontré la causa en ms1.log: un firewall entre el servidor y la BD cierra las conexiones que pasan un rato sin uso, y el pool las entregaba muertas. Activé Test Connections On Reserve (con SQL ISVALID) para que WebLogic pruebe cada línea antes de entregarla.','good');
+  if(!quiet&&kind==='jms')say('fix-jms',0,150,140,'Claude · mantenimiento','Liberé espacio en el disco del File Store. El store volvió a operar solo y el back office retoma las cartas guardadas.','good');
+  S.crash=null;alertKind=null;al.hidden=true;peak=0;calmT=0;conns.forEach(c=>{c.stale=false;c.idleT=0});
   const st=$('stageB');st.classList.remove('alarm','warn');
   [...threads,...mdbs].forEach(a=>{if(a.state==='ko'){a.reqT=0;goHome(a)}});
   sync();
 }
 function resetWorld(){
   pending.length=0;leaving.length=0;queue.length=0;waiters.length=0;parts.length=0;markers.length=0;
-  conns.forEach(c=>{c.state='free';c.owner=null;c.leakT=0});
+  conns.forEach(c=>{c.state='free';c.owner=null;c.leakT=0;c.stale=false;c.idleT=0});
   [...threads,...mdbs].forEach(a=>{a.state='idle';a.path=[];a.x=a.home.x;a.y=a.home.y;a.conn=null;a.carry=false;a.stuck=false;a.failT=0;a.reqT=0;a.msg=null;a.walk=0;a.t=0});
-  Object.assign(M,{waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0});
+  Object.assign(M,{waitFail:0,leaked:0,received:0,errorQ:0,storeBlink:0,dbErr:0,reqErr:0});
   dbLevel=55;failRec=0;frT=0;peak=0;calmT=0;dsStreak=0;wmStreak=0;shakeT=0;lastAlert={};litDs=0;litJms=0;
   bot.state='idle';bot.path=[];bot.x=bot.home.x;bot.y=bot.home.y;
 }
@@ -1016,6 +1018,7 @@ function drawCrash(){
     R(190,25,22,4,'#161120');R(188,26,2,2,'#e8605a');R(212,26,2,2,'#e8605a');
     for(let i=0;i<S.N;i++)R(plugX(i),19,2,22,'#8c2f2b');
   }
+  if(S.crash==='unk')conns.forEach((c,i)=>{if(i<S.N&&c.state==='free'&&c.stale){R(plugX(i),19,2,22,'#2a2132');for(let y=19;y<41;y+=3)R(plugX(i),y,2,1,'#6d6475')}});
   if(S.crash==='jms'){
     R(88,140,126,16,'#3a1a1f');R(88,158,126,6,Math.floor(t*4)%2?'#e8605a':'#8c2f2b');
     for(let k=0;k<10;k++)R(92+k*12+(k%3)*2,166-(k%2)*3,4,2,'#8a8090');
@@ -1031,6 +1034,7 @@ function update(dt){
   pending.forEach((p,k)=>{const tx=22-Math.min(k,3)*7;if(p.x<tx){p.x=Math.min(tx,p.x+45*dt);p.walk+=dt}else p.walk=0});
   for(let k=leaving.length-1;k>=0;k--){const p=leaving[k];p.x+=45*dt;p.walk+=dt;if(p.x>32)leaving.splice(k,1)}
   shakeT=Math.max(0,shakeT-dt);
+  [...threads,...mdbs].forEach(a=>{if(a.state==='ko'){a.koT-=dt;if(a.koT<=0)goHome(a)}});
   for(let k=parts.length-1;k>=0;k--){const p=parts[k];p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)parts.splice(k,1)}
   if(parts.length<400){
     if(S.crash==='db'&&Math.random()<dt*14)smoke(287,24);
@@ -1039,8 +1043,8 @@ function update(dt){
   }
   if(S.crash==='db'){[...threads,...mdbs].forEach(a=>{if(a.state==='using'||a.state==='toPlug'||a.state==='waitConn')ko(a)});frT+=dt;if(frT>2){frT=0;failRec++}}
   if(S.crash==='pool'&&threads.some(a=>a.stuck&&a.state==='waitConn'))say('poolstuck',999,180,40,'Work Manager','Los empleados llevan demasiado tiempo bloqueados esperando una línea: WebLogic los marca STUCK.','bad','StuckThreadCount sube: hilos bloqueados en la reserva de conexiones.');
-  if(S.crash==='unk')threads.forEach(a=>{if(a.state==='using'&&Math.random()<dt*.6)ko(a)});
-  if(S.crash==='jms')mdbs.forEach(a=>{if(a.state!=='idle'&&a.state!=='ko'&&a.state!=='toHome')ko(a)});
+  if(S.crash==='unk')conns.forEach(c=>{if(c.state==='free'){c.idleT=(c.idleT||0)+dt;if(c.idleT>3)c.stale=true}else c.idleT=0});
+  if(S.crash==='jms')mdbs.forEach(a=>{if(a.state!=='idle'&&a.state!=='ko'&&a.state!=='toHome')backOff(a)});
 
   conns.forEach(c=>{if(c.state==='leaked'){c.leakT+=dt;if(c.leakT>INACTIVE){c.state='free';M.leaked++;
     say('reclaim',3,96,16,'Conmutador jdbc/PagosDS','Recuperé la línea #'+(c.i+1)+' abandonada (Inactive Connection Timeout).','good')}}});
@@ -1052,7 +1056,7 @@ function update(dt){
     if(a.waitT>RESERVE){
       waiters.splice(k,1);
       if(a.kind==='t'){M.waitFail++;a.failT=1.5;goHome(a);
-        say('wfail',4,a.x,a.y-22,'Empleado H'+(a.i+1),'Esperé más que Connection Reserve Timeout. La petición falla.','bad')}
+        say('wfail',4,a.x,a.y-22,'Empleado H'+(a.i+1),'Esperé más que el Connection Reserve Timeout y recibí PoolLimitSQLException: no hay conexiones disponibles. La petición falla y quedo libre.','bad')}
       else{queue.unshift(a.msg);a.msg=null;goHome(a)}
     }
   }
@@ -1072,7 +1076,7 @@ function update(dt){
       release(a);
       const full=dbLevel>=100;if(full){M.dbErr++;dbFull()}else grow();
       if(full||Math.random()<.04){a.msg.fails++;
-        if(a.msg.fails>=3){M.errorQ++;say('errq',3,164,90,'Mandy','La carta #'+a.msg.id+' falló 3 veces. Pasó a la bandeja de errores.','bad')}
+        if(a.msg.fails>=3){M.errorQ++;say('errq',3,164,90,'Mandy','La carta #'+a.msg.id+' superó el Redelivery Limit (configurado en 3). Pasó a la bandeja de errores.','bad')}
         else queue.unshift(a.msg)}
       a.msg=null;goHome(a)}}
   });
@@ -1086,7 +1090,7 @@ function update(dt){
       case'toDoor':a.carry=true;a.state='toDirDs';a.path=[{x:DIR_STOP.x,y:DIR_STOP.y}];break;
       case'toDirDs':litDs=.8;a.state='toWait';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_P1},{x:218,y:Y_P1}];break;
       case'toWait':if(S.crash==='db')ko(a);else arriveWait(a);break;
-      case'toPlug':a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9)*(S.hold||1):(S.slow?2:.5))*(.7+Math.random()*.6);break;
+      case'toPlug':if(a.conn&&a.conn.stale){const c=a.conn;c.stale=false;c.idleT=0;say('stale',4,a.x,a.y-22,(a.kind==='t'?'Empleado H':'Back office M')+(a.i+1),'IO Error: Connection reset. La línea que me entregaron estaba muerta.','bad','La conexión llevaba un rato sin uso y alguien en la red la cerró; el pool no lo sabía.');ko(a);break}a.state='using';a.t=0;a.dur=(a.kind==='t'?(S.slow?4.5:.9)*(S.hold||1):(S.slow?2:.5))*(.7+Math.random()*.6);break;
       case'toDirJms':litJms=.8;a.state='toQueue';a.path=[{x:EX,y:Y_LOBBY},{x:EX,y:Y_SOT},{x:Q_IN.x,y:Q_IN.y}];break;
       case'toQueue':if(S.crash==='jms'){ko(a);break}queue.push({id:++msgSeq,fails:0});M.received++;M.storeBlink=.35;goHome(a);break;
       case'toHome':a.state='idle';a.carry=false;break;
@@ -1105,7 +1109,7 @@ function update(dt){
   if(wmStreak>3)say('wm',10,20,90,'Work Manager','Todos los empleados están ocupados. Hay '+pending.length+' peticiones esperando en la calle.','warn','QueueLength creciendo: no hay hilos libres.');
   if(queue.length>12)say('q',10,164,90,'Mandy','Hay '+queue.length+' cartas en correspondencia. Siguen seguras en el archivo en disco.','warn');
   if(S.slow)say('slow',12,164,90,'Mandy','La bóveda está lenta: las líneas quedan ocupadas y los empleados se atascan.','bad');
-  if(S.arch)say('arch',10,287,40,'Bóveda Oracle','ORA-00257: error del archivador. Me congelé y no acepto cambios hasta que liberen espacio de archivelogs.','bad','Las líneas quedan ocupadas esperando: el pool se agota y los hilos pasan a STUCK.');
+  if(S.arch)say('arch',10,287,40,'Bóveda Oracle','ORA-00257: Archiver error. Connect AS SYSDBA only until resolved. Las sesiones abiertas se quedan esperando y rechazo conexiones nuevas.','bad','Las líneas quedan ocupadas esperando el commit: el pool se agota y los hilos pasan a STUCK.');
   if(dbLevel>=85&&dbLevel<100)say('tswarn',15,287,70,'Bóveda Oracle','Tablespace al '+Math.round(dbLevel)+'%. Si llego a 100, las escrituras van a fallar.','warn');
   botUpdate(dt);
 }
@@ -1227,11 +1231,11 @@ function draw(){
     if(inLift(a)){R(a.x-6,a.y-23,12,24,'#5d4a68');R(a.x-6,a.y-23,12,1,'#c9973a')}
     if(a.state==='ko'){personKO(a);return}
     const moving=a.path.length&&!(a.state==='waitConn'&&a.x===a.path[0].x&&a.y===a.path[0].y);
-    person(a.x,a.y,{shirt:a.kind==='t'?(a.stuck?'#c8553d':'#3f9e95'):(S.mdbDown?'#5a5560':'#e6b04a'),hair:a.kind==='t'?'#2b1d14':'#151515',skin:a.kind==='m'&&S.mdbDown?'#8a8090':'#d9a273',walk:moving?a.walk:0,carry:a.carry,fail:a.failT>0,
+    person(a.x,a.y,{shirt:a.kind==='t'?(a.stuck?'#c8553d':'#3f9e95'):((S.mdbDown||S.crash==='jms')?'#5a5560':'#e6b04a'),hair:a.kind==='t'?'#2b1d14':'#151515',skin:a.kind==='m'&&(S.mdbDown||S.crash==='jms')?'#8a8090':'#d9a273',walk:moving?a.walk:0,carry:a.carry,fail:a.failT>0,
       tag:(a.kind==='t'?'H':'M')+(a.i+1),tagCol:a.kind==='m'?'#fac775':(a.stuck&&a.state!=='idle'?'#e8605a':'#9fe1cb')});
     if(a.state==='waitConn'&&a.waitT>1)clock(a.x,a.y-29);
   });
-  if(S.mdbDown)mdbs.forEach(a=>{const z=Math.floor(t*2)%3;R(a.x+6+z,a.y-24-z*2,2,1,'#b3a5bd')});
+  if(S.mdbDown||S.crash==='jms')mdbs.forEach(a=>{const z=Math.floor(t*2)%3;R(a.x+6+z,a.y-24-z*2,2,1,'#b3a5bd')});
   drawCrash();
   if(Math.abs(bot.x-EX)<1&&bot.path.length&&Math.abs(bot.path[0].y-bot.y)>1){R(bot.x-7,bot.y-23,14,24,'#5d4a68')}
   drawBot();drawBotSign();
@@ -1254,9 +1258,10 @@ function renderLabels(){
   const used=conns.filter(c=>c.state!=='free').length,wq=waiters.length;
   L.ds.textContent='PISO 1 · CONMUTADOR = DATA SOURCE jdbc/PagosDS · LÍNEAS EN USO '+used+' DE '+S.N+(wq?' · EN FILA '+wq:'');
   L.ds.classList.toggle('down',wq>0);
+  if(S.crash==='db'){L.ds.textContent='PISO 1 · CONMUTADOR = DATA SOURCE jdbc/PagosDS · '+(failRec>=2?'POOL DESHABILITADO: FALLA RÁPIDO':'LAS PRUEBAS DE CONEXIÓN FALLAN');L.ds.classList.add('down')}
   L.inb.textContent='PETICIONES: '+pending.length;L.inb.classList.toggle('down',pending.length>S.T);
   const nko=[...threads,...mdbs].filter(a=>a.state==='ko').length;
-  L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS'+(nko?' · '+nko+' FUERA DE COMBATE':'');
+  L.hil.textContent='LOBBY · EMPLEADOS = HILOS: '+busyT+' DE '+S.T+' OCUPADOS'+(nko?' · '+nko+' CON ERROR':'');
   L.hil.classList.toggle('down',nko>0);
   if(alertKind==='pool')poolText();
   L.jms.textContent='SÓTANO · CORRESPONDENCIA = COLA JMS · '+queue.length+' CARTAS';
@@ -1329,10 +1334,10 @@ const CONCEPTS={
     ['Analogía','El back office saca la carta y escribe en la bóveda como un solo movimiento: o quedan las dos cosas o ninguna.'],
     ['Técnico','Con un driver XA en el Data Source y una Connection Factory con XA habilitado, la cola y la BD participan en un two-phase commit. Si algo falla, el mensaje vuelve a la cola y se reintenta.']]},
   fallas:{chip:'Fallas graves',title:'Las tres fallas graves',dl:[
-    ['BD caída','La bóveda explota y la calle queda cortada. El pool no puede abrir ni probar conexiones, así que cada petición falla aunque WebLogic esté sano. En el servidor se ve FailuresToReconnectCount subiendo y conexiones activas en cero.'],
-    ['JMS Server caído','Revienta la correspondencia. Lo típico es que el File Store se quede sin disco: el JMS Server deja de aceptar mensajes, el envío lanza JMSException y los MDB se detienen. Lo que ya estaba persistido no se pierde.'],
+    ['BD caída','La bóveda explota y la calle queda cortada. Las consultas fallan (por ejemplo ORA-03113) y las pruebas de conexión también. Tras 2 fallas, WebLogic cierra las conexiones y deshabilita el pool para fallar rápido. Los hilos no mueren: reciben la excepción y quedan libres.'],
+    ['File Store sin espacio','Revienta la correspondencia. Según la documentación, el File Store lanza excepciones mientras el disco está lleno: el envío falla con JMSException y el MDB se suspende y reintenta. Cuando se libera espacio, el store vuelve a operar solo, sin reiniciar. Lo ya guardado no se pierde.'],
     ['Pool insuficiente','La demanda supera las líneas y además el pool espera sin límite (Connection Reserve Timeout = 0). Los hilos no mueren: se quedan bloqueados en la fila, nadie atiende peticiones nuevas y terminan marcados como STUCK. Con el timeout por defecto (10 s) sería el caso de “Pool corto”: se rinden con error y siguen vivos. La alerta calcula la demanda pico y recomienda un Maximum Capacity, pero antes hay que descartar consultas lentas y confirmar con el DBA que la BD aguanta más sesiones.'],
-    ['Falla desconocida','Hay errores, pero ninguna métrica señala una causa. El ingeniero se queda con el signo de interrogación: toca revisar logs, thread dumps, red y sistema operativo. En el ejemplo, la causa era un firewall que cerraba conexiones inactivas.'],
+    ['Falla desconocida','Un firewall cierra las conexiones inactivas sin avisar. El pool las entrega muertas y fallan solo algunas peticiones, con “Connection reset”. Ninguna métrica lo delata. La solución es activar Test Connections On Reserve o ajustar el tiempo de inactividad del firewall.'],
     ['Por qué importa','Las tres terminan en peticiones con error, pero la causa y el equipo que la resuelve son distintos: DBA, infraestructura de mensajería o capacidad del pool.']]},
   claude:{chip:'Claude',title:'Claude, ingeniero de mantenimiento',dl:[
     ['Analogía','Cuando suena una alerta, toma el ascensor hasta el piso del problema, saca la llave y propone el paso del runbook.'],
@@ -1437,13 +1442,13 @@ const SCEN=[
   {id:'congelada',name:'BD congelada',sub:'Archivelogs llenos',set:{rate:.8,T:6,N:5,slow:false,leak:false,mdbDown:false,arch:true},
    story:'Se llenó el espacio de archivelogs y la BD deja de aceptar cambios. No responde con error: se queda esperando. Las líneas quedan ocupadas, se forma fila, los empleados pasan a STUCK y las peticiones se acumulan en la calle. Todo parece colgado, pero la causa está en la bóveda. Usa “Llamar al DBA”.'},
   {id:'caidabd',name:'Se cae la BD',sub:'Falla grave',crash:'db',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
-   story:'La bóveda explota y deja de responder. Las líneas del conmutador se ponen rojas, la calle queda cortada y todo empleado que intenta usar una línea cae fuera de combate. Suena la alarma: es una falla de la BD, no de WebLogic. Usa el botón de la alerta para llamar al DBA.'},
+   story:'La bóveda explota y deja de responder. Cada empleado que intenta usar una línea recibe un error: se marea un momento y vuelve libre, porque los hilos no mueren. Tras varias fallas, WebLogic deshabilita el pool para fallar rápido. Las cartas del back office fallan y, al superar el límite de reintentos, van a la bandeja de errores. Usa el botón de la alerta para llamar al DBA.'},
   {id:'caidajms',name:'Se cae el JMS',sub:'File Store sin espacio',crash:'jms',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
-   story:'La correspondencia revienta: el archivo en disco se quedó sin espacio y el JMS Server deja de recibir cartas. Los empleados que bajan a dejar su tarea caen al llegar y el back office se desploma. Las cartas que ya estaban guardadas siguen ahí. La alerta dice cómo recuperarlo.'},
+   story:'El disco del File Store se llena. Cada empleado que baja a dejar su carta recibe un error (JMSException) y el back office queda suspendido, en gris, esperando para reintentar. Las cartas que ya estaban guardadas siguen ahí. Al liberar espacio, el store se recupera solo.'},
   {id:'poolchico',name:'Pool insuficiente',sub:'Hay que aumentarlo',crash:'pool',set:{rate:1.6,T:10,N:2,hold:3,slow:false,leak:false,mdbDown:false},
    story:'Cierre de quincena con transacciones pesadas: harían falta unas 5 líneas (1,6 peticiones por segundo × 3 s cada una) y solo hay 2 para 10 empleados. Además, el pool está configurado para esperar sin límite (Connection Reserve Timeout = 0). Los empleados se quedan congelados en la fila con su relojito, nadie atiende la calle y, con el tiempo, WebLogic los marca STUCK (placa roja). No mueren: están bloqueados. La alerta calcula la demanda pico y recomienda un Maximum Capacity; aplícalo y mira cómo se descongelan.'},
   {id:'desconocida',name:'Falla desconocida',sub:'Nadie sabe qué pasa',crash:'unk',set:{rate:1,T:6,N:5,slow:false,leak:false,mdbDown:false},
-   story:'Algunos empleados caen sin razón aparente, pero la bóveda, la correspondencia y el conmutador se ven bien. El ingeniero llega con un signo de interrogación: no sabe qué falló. Es el incidente más difícil, porque hay que investigar en los logs antes de actuar.'}
+   story:'Un firewall cierra en silencio las conexiones que pasan un rato sin uso (columnas punteadas). El pool no lo sabe y se las entrega a los empleados, que fallan con “Connection reset”. Solo fallan algunos, de vez en cuando, y ninguna métrica señala la causa: el ingeniero llega con un signo de interrogación. Hay que investigar en los logs.'}
 ];
 const scenEl=$('scenB'),storyEl=$('storyB');
 const GRP={normal:'Punto de partida',corto:'Problemas de rendimiento',caidabd:'Fallas graves'};let inGrave=false;
@@ -1499,7 +1504,7 @@ const MX=[
   ['Errores ORA-01653',()=>M.dbErr,v=>v?'bad':'ok'],
   ['Archivelogs llenos',()=>S.arch?'SÍ':'NO',v=>v==='SÍ'?'bad':'ok'],
   ['Fallas graves'],
-  ['Empleados fuera de combate',()=>[...threads,...mdbs].filter(a=>a.state==='ko').length,v=>v?'bad':'ok'],
+  ['Peticiones con error',()=>M.reqErr+M.waitFail+M.dbErr,v=>v?'bad':'ok'],
   ['FailuresToReconnectCount · PagosDS',()=>failRec,v=>v?'bad':'ok'],
   ['HealthState · PagosJMSServer',()=>S.crash==='jms'?'CRÍTICO':'OK',v=>v==='OK'?'ok':'bad'],
   ['Maximum Capacity recomendado',()=>alertKind==='pool'?recN:'—',v=>v==='—'?'ok':'warn']
